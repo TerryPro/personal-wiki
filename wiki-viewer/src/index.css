@@ -1,0 +1,292 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ————— Design system tokens · 墨绿书斋 theme ————— */
+:root {
+  /* neutrals — deep pine ink */
+  --ink: 168 24% 6%;
+  --ink-soft: 167 21% 8%;
+  --surface: 166 18% 11%;
+  --surface-raised: 165 16% 14.5%;
+  --line: 164 12% 19%;
+  --fg: 45 28% 92%;
+  --fg-secondary: 50 12% 70%;
+  --fg-muted: 60 6% 50%;
+
+  /* single accent — pale gold */
+  --accent: 42 52% 62%;
+  --accent-glow: 40 62% 75%;
+
+  /* category hues (badges / graph only) — muted scholarly set */
+  --cat-source: 202 48% 60%;
+  --cat-entity: 156 36% 52%;
+  --cat-concept: 28 62% 58%;
+  --cat-synthesis: 272 34% 64%;
+
+  /* theme-dependent misc */
+  --graph-edge: 164 12% 26%;
+  --graph-hot: 42 52% 62%;
+  --graph-label: 45 20% 82%;
+  --shadow-color: 168 30% 2%;
+  --co-danger: 4 55% 58%;
+
+  /* reader typography（被 html[data-rsize/rpad] 覆盖，--read-pct 由 JS 随滑杆写入）
+     行宽 = 正文区宽度百分比：免打扰时正文区变宽，同一比例自动展开 */
+  --read-fs: 15px;
+  --read-lh: 1.78;
+  --read-pct: 72%;
+  --read-pad-x: 1.5rem;
+  --read-pad-y: 2.5rem;
+
+  color-scheme: dark;
+}
+
+/* 宣纸书斋 · light theme */
+html.light {
+  --ink: 44 28% 96%;
+  --ink-soft: 44 22% 93%;
+  --surface: 44 30% 98.5%;
+  --surface-raised: 44 18% 89%;
+  --line: 42 16% 83%;
+  --fg: 30 14% 14%;
+  --fg-secondary: 30 9% 33%;
+  --fg-muted: 36 7% 50%;
+
+  --accent: 170 46% 26%;
+  --accent-glow: 28 68% 33%;
+
+  --cat-source: 205 55% 38%;
+  --cat-entity: 158 45% 30%;
+  --cat-concept: 26 70% 40%;
+  --cat-synthesis: 272 38% 44%;
+
+  --graph-edge: 42 14% 68%;
+  --graph-hot: 28 68% 40%;
+  --graph-label: 30 10% 25%;
+  --shadow-color: 40 30% 45%;
+  --co-danger: 4 65% 42%;
+
+  color-scheme: light;
+}
+
+/* 读者排版：字号 / 行宽（字体切换在 .prose-wiki 规则里） */
+html[data-rsize='0'] {
+  --read-fs: 14px;
+  --read-lh: 1.7;
+}
+html[data-rsize='2'] {
+  --read-fs: 17.5px;
+  --read-lh: 1.85;
+}
+html[data-rpad='0'] {
+  --read-pad-y: 1.75rem;
+}
+html[data-rpad='2'] {
+  --read-pad-y: 4rem;
+}
+
+* {
+  border-color: hsl(var(--line));
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink font-sans text-fg antialiased;
+}
+
+::selection {
+  background: hsl(var(--accent) / 0.28);
+}
+
+/* slim scrollbars */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: hsl(var(--line));
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--fg-muted) / 0.6);
+}
+
+@layer components {
+  /* category badge */
+  .cat-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2 py-[1px] text-[11px] font-medium leading-4;
+  }
+  .cat-badge::before {
+    content: '';
+    @apply h-1.5 w-1.5 rounded-full;
+    background: currentColor;
+  }
+
+  /* sidebar nav item */
+  .nav-item {
+    @apply relative flex w-full items-center gap-2 rounded-md px-2.5 py-[5px] text-left text-[13px] leading-5 text-fg-secondary transition-colors duration-150;
+  }
+  .nav-item:hover {
+    @apply bg-surface-raised text-fg;
+  }
+  .nav-item.active {
+    @apply bg-surface-raised text-fg;
+  }
+  .nav-item.active::before {
+    content: '';
+    @apply absolute -left-[9px] top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full;
+    background: hsl(var(--accent));
+  }
+
+  /* rendered article typography */
+  .prose-wiki {
+    font-size: var(--read-fs);
+    line-height: var(--read-lh);
+    @apply text-fg-secondary;
+  }
+  html[data-rserif='1'] .prose-wiki,
+  html[data-rserif='1'] .page-title {
+    font-family: 'Source Han Serif SC', 'Noto Serif CJK SC', 'Songti SC', Georgia, 'Times New Roman', serif;
+  }
+  .prose-wiki h1 {
+    @apply mb-3 mt-0 font-serif text-[1.8em] font-semibold leading-[1.32] tracking-tight text-fg;
+  }
+  .prose-wiki h2 {
+    @apply mb-3 mt-10 scroll-mt-4 border-b border-line pb-2 text-[1.2em] font-semibold tracking-tight text-fg;
+  }
+  .prose-wiki h3 {
+    @apply mb-2 mt-7 scroll-mt-4 text-[1.03em] font-semibold text-fg;
+  }
+  .prose-wiki h4 {
+    @apply mb-2 mt-6 scroll-mt-4 text-[0.93em] font-semibold text-fg;
+  }
+  .prose-wiki p {
+    @apply my-4;
+  }
+  .prose-wiki ul {
+    @apply my-4 list-disc space-y-1.5 pl-6;
+  }
+  .prose-wiki ol {
+    @apply my-4 list-decimal space-y-1.5 pl-6;
+  }
+  .prose-wiki strong {
+    @apply font-semibold text-fg;
+  }
+  .prose-wiki em {
+    @apply italic;
+  }
+  .prose-wiki blockquote {
+    @apply my-5 rounded-r-md border-l-2 border-accent/60 bg-surface/70 py-2 pl-4 pr-3 font-serif text-fg-secondary italic;
+  }
+  .prose-wiki code {
+    @apply rounded bg-surface-raised px-1.5 py-[1px] font-mono text-[13px] text-accent-glow;
+  }
+  .prose-wiki pre {
+    @apply my-5 overflow-x-auto rounded-card border border-line bg-ink-soft p-4 text-[13px] leading-6;
+  }
+  .prose-wiki pre code {
+    @apply bg-transparent p-0 text-fg-secondary;
+  }
+  .prose-wiki table {
+    @apply my-6 w-full border-collapse overflow-hidden rounded-md text-[13.5px];
+  }
+  .prose-wiki th {
+    @apply border-b border-line bg-surface-raised px-3 py-2 text-left font-semibold text-fg;
+  }
+  .prose-wiki td {
+    @apply border-b border-line/70 px-3 py-2 align-top;
+  }
+  .prose-wiki tr:last-child td {
+    @apply border-b-0;
+  }
+  .prose-wiki hr {
+    @apply my-8 border-line;
+  }
+  .prose-wiki img,
+  .prose-wiki .wiki-img {
+    @apply my-5 max-w-full rounded-card border border-line;
+  }
+
+  /* GFM 任务列表：自绘复选框（只读，与双主题令牌对齐） */
+  .prose-wiki li:has(> input[type='checkbox']) {
+    @apply list-none -ml-4 flex items-start gap-2;
+  }
+  .prose-wiki input[type='checkbox'] {
+    @apply mt-[5px] h-[13px] w-[13px] shrink-0 appearance-none rounded-[3px] border border-line bg-surface;
+  }
+  .prose-wiki input[type='checkbox']:checked {
+    border-color: hsl(var(--accent));
+    background: hsl(var(--accent))
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23101512' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+      center / 9px no-repeat;
+  }
+  .prose-wiki a {
+    @apply text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent;
+  }
+
+  /* wiki links */
+  .wikilink {
+    @apply cursor-pointer rounded-[3px] px-[1px] font-medium text-accent-glow decoration-accent/40 decoration-dotted underline-offset-4 transition-colors hover:bg-accent/10 hover:underline;
+  }
+  .wikilink-broken {
+    @apply cursor-default text-fg-muted underline decoration-dotted decoration-fg-muted/50 hover:no-underline;
+  }
+
+  /* callout（Obsidian 风格提示块）：颜色由 data-callout 映射到主题令牌，双主题自适应 */
+  .callout {
+    @apply my-5 rounded-r-md border-l-[3px] py-3 pr-4 pl-4;
+    border-color: hsl(var(--co));
+    background: hsl(var(--co) / 0.07);
+    --co: var(--accent);
+  }
+  .callout[data-callout='info'] { --co: var(--cat-source); }
+  .callout[data-callout='tip'], .callout[data-callout='todo'] { --co: var(--cat-entity); }
+  .callout[data-callout='warning'], .callout[data-callout='example'] { --co: var(--cat-concept); }
+  .callout[data-callout='danger'] { --co: var(--co-danger); }
+  .callout[data-callout='quote'] { --co: var(--cat-synthesis); }
+  .callout-title {
+    @apply flex items-center gap-2 text-[13.5px] font-semibold;
+    color: hsl(var(--co));
+  }
+  .callout-body {
+    @apply mt-1 text-[14.5px] leading-[1.72] text-fg-secondary;
+  }
+  .callout-body > p:first-child {
+    @apply mt-0;
+  }
+  .callout-body > p:last-child {
+    @apply mb-0;
+  }
+
+  /* 搜索词页内高亮 */
+  .search-hit {
+    @apply rounded-[2px] bg-accent/25 px-[1px] text-inherit;
+  }
+  .search-hit.current {
+    @apply bg-accent/70 font-medium text-ink ring-[1.5px] ring-accent/60;
+  }
+
+  /* 代码高亮 token（零依赖词法器输出，颜色走主题令牌） */
+  .prose-wiki .tok-k {
+    color: hsl(var(--accent-glow));
+  }
+  .prose-wiki .tok-s {
+    color: hsl(var(--cat-entity));
+  }
+  .prose-wiki .tok-c {
+    color: hsl(var(--fg-muted));
+    font-style: italic;
+  }
+  .prose-wiki .tok-n {
+    color: hsl(var(--cat-concept));
+  }
+  .prose-wiki .tok-f {
+    color: hsl(var(--cat-source));
+  }
+}

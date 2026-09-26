@@ -1,0 +1,16 @@
+# Obsidian 机器本地状态
+llmwiki/.obsidian/workspace.json
+llmwiki/.obsidian/workspace-mobile.json
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 构建缓存
+wiki-viewer/tsconfig.tsbuildinfo
+
+# 日志与临时文件
+*.log
+
+# 内层空仓库备份（确认无用后可删除）
+llmwiki/llmwiki-git.bak/
