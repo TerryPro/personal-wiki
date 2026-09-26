@@ -42,3 +42,9 @@ desktop.ini
 
 # ——— 嵌套仓库备份（历史上 llmwiki 内嵌空仓库的教训）———
 *-git.bak/
+
+# ——— 第三方参考仓库（自带 .git，仅作交互参考）———
+pi-web/
+
+# ——— agent-server 本地配置状态（工具白名单开关，因人而异）———
+agent-server/tools.json

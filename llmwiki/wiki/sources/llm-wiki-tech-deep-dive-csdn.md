@@ -2,7 +2,7 @@
 tags: [ai, llm, llm-wiki]
 sources: [llm-wiki-tech-deep-dive-csdn.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["LLM Wiki 技术深度解析（CSDN）"]
 ---
 
@@ -38,3 +38,14 @@ aliases: ["LLM Wiki 技术深度解析（CSDN）"]
 ## Concepts Covered
 
 - [[concepts/llm-wiki-pattern|LLM Wiki 模式]]、[[concepts/rag|RAG]]、[[concepts/karpathy-four-principles|Karpathy AI 个性化四原则]]、[[concepts/scale-and-hybrid-strategy|规模边界与混合策略]]、[[concepts/memex|Memex]]、[[concepts/three-layer-architecture|三层知识架构]]、[[concepts/human-llm-division-of-labor|人机分工]]
+
+## 相关页面
+
+- [[sources/llm-wiki-teardown-juejin|Karpathy LLM Wiki 完整拆解（掘金）]] —— 同题中文拆解，含 bluewater8008 生产教训与 idea file 理念
+- [[sources/llm-wiki-datacamp-overview|LLM Wiki：新一代 AI 知识架构（DataCamp 综述）]] —— 范式区分与 wiki/RAG 互补论
+- [[sources/karpathy-llm-wiki-complete-guide-starmorph|Karpathy LLM Wiki 完全指南（Starmorph）]] —— 英文侧最系统指南
+- [[entities/farzapedia|Farzapedia]] —— 本文引介的标杆案例
+
+## 日期与数据备注（2026-09-26 lint 补记）
+
+本文记 Karpathy 原始 Gist 为 **2026-04-04**，与 [[sources/llm-wiki-teardown-juejin|掘金拆解]] 的 04-03 说法不一；结合 Farzapedia 推文日期（04-04）与本文「发推两天后 Farza 就做了 Farzapedia」的表述，两者无法同时成立，故 wiki 内统一改用「2026 年 4 月初」，逐字日期待核（见 [[entities/farzapedia|Farzapedia]] 的时间线待核条）。

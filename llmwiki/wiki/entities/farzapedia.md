@@ -2,7 +2,7 @@
 tags: [ai, llm, agents]
 sources: [llm-wiki-tech-deep-dive-csdn.md, llm-wiki-teardown-juejin.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["Farzapedia"]
 ---
 
@@ -40,6 +40,7 @@ Farzapedia 证明了 wiki 作为 agent 记忆的第二条路：agent 个性化�
 - **传播数据**：该推文获约 **123 万浏览、3825 赞、4710 收藏**（注：与 [[entities/andrej-karpathy|Karpathy]] 主推文的 16M~17M 浏览是两条不同推文，勿混淆）
 - **Karpathy 引用**：Karpathy 在 `x.com/karpathy/status/2040572272944324650` 转引 Farzapedia，并据此总结出 [[concepts/karpathy-four-principles|Karpathy AI 个性化四原则]]
 - **溯源状态**：X 正文无法直接抓取，上述细节系经 juejin（8 万人收藏拆解文）、CSDN、blockchain.news 三方二手报道交叉核实后重建。其中 [[sources/llm-wiki-teardown-juejin|掘金拆解文]]（含 Farza 推文较完整转述）已于 2026-09-25 作为来源存入 raw/（`llm-wiki-teardown-juejin.md`）；Farza 的 X 推文逐字原文仍待补录
+- **时间线待核（2026-09-26 lint）**：[[sources/llm-wiki-tech-deep-dive-csdn|CSDN 深度解析]] 称「Karpathy 发推**两天后**」Farza 即搭建，而本页记 Farza 推文为 2026-04-04；[[sources/llm-wiki-teardown-juejin|掘金拆解]] 的「两天后」实指 Karpathy **追加 Gist** 的时间，与 Farzapedia 无关。若 Farza 推文确为 04-04，Karpathy 原推应在 04-02 前后——推文确切日期（04-02/04-03/04-04）说法不一，故 wiki 内统一改用「2026 年 4 月初」表述。
 
 ## 相关页面
 

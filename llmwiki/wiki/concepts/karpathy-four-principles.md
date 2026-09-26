@@ -1,8 +1,8 @@
 ---
 tags: [ai, llm, knowledge-management]
-sources: [llm-wiki-tech-deep-dive-csdn.md, How-to-Build-Karpathys-LLM-Wiki.md]
+sources: [llm-wiki-tech-deep-dive-csdn.md, How-to-Build-Karpathys-LLM-Wiki.md, What-Is-the-LLM-Wiki-Karpathys.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["Karpathy AI 个性化四原则"]
 ---
 
@@ -36,7 +36,13 @@ AI"记住"了什么必须可见。ChatGPT/Claude 的记忆功能是黑箱——�
 - [[concepts/retrieval-vs-compilation|检索式与编译式范式]] 关注知识加工时机，四原则关注知识资产归属——两者共同构成选择 LLM Wiki 的完整理由
 - "显性化"直接对立于黑箱记忆：agent 的记忆可以是可审计的 wiki（多 agent 共享、可迁移）
 
+## 归因存疑（2026-09-26 lint）
+
+[[sources/what-is-the-llm-wiki-karpathys|What Is the LLM Wiki?]] 另有一套归给 [[entities/andrej-karpathy|Andrej Karpathy]] 的“核心原则”——原子知识单元、上下文随分块同行、跨条目格式一致、新鲜度与版本化。该套原则无具体出处，且属**检索工程**关注点，与本页**知识资产归属**取向的四原则并非同一框架；两套框架的分歧已固定于 [[synthesis/llm-wiki-definition-divergence|LLM Wiki 的两种定义]]，两套并存、不择一断言。
+
 ## 相关页面
 
+- [[sources/what-is-the-llm-wiki-karpathys|What Is the LLM Wiki?（Karpathy 的 AI 知识库导论）]] — 归给 Karpathy 的另一套「核心原则」（检索工程取向）
+- [[synthesis/llm-wiki-definition-divergence|LLM Wiki 的两种定义]] — 归因与定义分歧的固定页
 - [[sources/llm-wiki-tech-deep-dive-csdn|LLM Wiki 技术深度解析（CSDN）]] — 四原则的中文系统介绍
 - [[sources/karpathy-llm-wiki-complete-guide-starmorph|Karpathy LLM Wiki 完全指南（Starmorph）]]

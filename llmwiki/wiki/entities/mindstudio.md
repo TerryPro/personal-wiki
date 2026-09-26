@@ -14,10 +14,11 @@ MindStudio（mindstudio.ai）：一个面向非技术团队的 AI 应用/agent �
 
 ## 与本库主题的关联
 
-- 该文借 [[concepts/llm-wiki-pattern|LLM Wiki 模式]] 与 [[entities/andrej-karpathy|Andrej Karpathy]] 的热度，把"LLM wiki"重新包装为**低代码 RAG 知识库**卖点，并指出非技术团队可借 MindStudio 之类平台配置知识库而无需写嵌入/向量检索代码。
+- 该文借 [[concepts/llm-wiki-pattern|LLM Wiki 模式]] 与 [[entities/andrej-karpathy|Andrej Karpathy]] 的热度,把“LLM wiki”重新包装为**低代码 [[concepts/rag|RAG]] 知识库**卖点,并指出非技术团队可借 MindStudio 之类平台配置知识库而无需写嵌入/向量检索代码。
 - 文中对"编辑工作与技术水平无关"的观察——决定收录什么、如何结构化、如何保鲜，往往比技术实现更重要——与本库主线一致，可作为企业非技术路线的少数正面论据。
 
 ## 相关页面
 
 - [[sources/what-is-the-llm-wiki-karpathys|What Is the LLM Wiki?（Karpathy 的 AI 知识库导论）]]——本页出处
+- [[concepts/rag|RAG]] —— 其产品所抽象封装路线的范式
 - [[concepts/retrieval-pipeline|检索管线]]——其产品所抽象封装的基础设施

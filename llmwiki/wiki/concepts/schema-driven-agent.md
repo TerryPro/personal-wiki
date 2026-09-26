@@ -10,7 +10,7 @@ aliases: ["Schema 驱动代理"]
 
 ## 定义
 
-[[concepts/llm-wiki-pattern|LLM Wiki 模式]] 的第三层：用一份 **schema 文档**（如 [[entities/claude-code|Claude Code]] 的 CLAUDE.md、Codex 的 AGENTS.md）告知 LLM wiki 的结构、约定，以及摄取来源、回答问题、维护 wiki 时应遵循的工作流。
+[[concepts/llm-wiki-pattern|LLM Wiki 模式]] 的第三层：用一份 **schema 文档**（如 [[entities/claude-code|Claude Code / Codex 类终端 agent]] 的 CLAUDE.md / AGENTS.md）告知 LLM wiki 的结构、约定，以及摄取来源、回答问题、维护 wiki 时应遵循的工作流。
 
 ## 作用
 
@@ -60,4 +60,6 @@ Schema 不是写死的规格，而是"你与 LLM 随时间共同演化（co-evol
 - [[concepts/llm-wiki-pattern|LLM Wiki 模式]]
 - [[concepts/three-layer-architecture|三层知识架构]]
 - [[concepts/change-contract|变更契约]]
+- [[concepts/ingest-query-lint|三大操作（Ingest / Query / Lint）]] —— schema 把三操作固化为可执行工作流
+- [[entities/mcp|MCP]] —— 与 schema 互补：解决工具可用性而非行为纪律
 - [[sources/llm-wiki-pattern|LLM Wiki 模式（来源摘要）]]

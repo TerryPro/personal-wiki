@@ -2,7 +2,7 @@
 tags: [ai, llm, llm-wiki]
 sources: [llm-wiki-teardown-juejin.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["Karpathy LLM Wiki 完整拆解（掘金）"]
 ---
 
@@ -18,7 +18,7 @@ aliases: ["Karpathy LLM Wiki 完整拆解（掘金）"]
 
 ## Key Claims
 
-- Karpathy 于 **2026-04-03** 在 X 发长帖《LLM Knowledge Bases》，据本文数据获 **1500 万浏览、4.8 万转发、8.8 万收藏**；两天后追加 Gist 方法论文档。
+- Karpathy 于 **2026-04-03** 在 X 发长帖《LLM Knowledge Bases》，据本文数据获 **1500 万浏览、4.8 万转发、8.8 万收藏**；两天后追加 Gist 方法论文档（此「两天后」指 Gist 与推文的间隔，非 Farzapedia 的搭建时间）。
 - **"idea file" 理念**：推文走红后 Karpathy 未开源具体代码仓库，而是写了一份 idea file（即 Gist）——主张"在 LLM agent 时代，分享想法比分享代码更有意义"，把 idea file 丢给 agent 即可定制出属于你自己的系统；该追加推文获 2709 转发、4 万收藏。
 - **Farzapedia 一手转述**：Farza（@FarzaTV）2026-04-04 推文《This is Farzapedia》，2500 条日记 + Apple Notes + 部分 iMessage → 400 篇互链文章；Farza 称此前用 RAG 做类似系统"it was ass"；该推文获 123 万浏览、3825 赞、4710 收藏。
 - **bluewater8008 六条生产教训**（详见 [[concepts/schema-driven-agent|Schema 驱动代理]]）：①先分类再提取 ②给索引设 token 预算（四级渐进式披露 L0~L3）③每种实体类型一个模板（定义 7 种）④每个任务产出两个输出（答案 + 回填 wiki）⑤从第一天设计跨域 domain 标签 ⑥人类负责验证（LLM 是作者、人是主编）。
@@ -45,4 +45,4 @@ aliases: ["Karpathy LLM Wiki 完整拆解（掘金）"]
 
 ## 数据出入备注
 
-本文记 Karpathy 原帖 **1500 万浏览**，而 [[sources/karpathy-llm-wiki-complete-guide-starmorph|Starmorph 指南]] 记 16M+、[[sources/llm-wiki-tech-deep-dive-csdn|CSDN 深度解析]] 记 1700 万+。三源量级一致（1500 万~1700 万）、尾数不一，属转述损耗，按规则标注待下次 lint 复核，不影响任何结论。
+本文记 Karpathy 原帖 **1500 万浏览**，而 [[sources/karpathy-llm-wiki-complete-guide-starmorph|Starmorph 指南]] 记 16M+、[[sources/llm-wiki-tech-deep-dive-csdn|CSDN 深度解析]] 记 1700 万+。三源量级一致（1500 万~1700 万）、尾数不一，属转述损耗。**2026-09-26 lint 结案**：wiki 内统一表述为「约 1500 万~1700 万浏览（多源转述）」，不再逐轮复核。另：本文记推文日期为 **2026-04-03**，与本库统用的「2026 年 4 月初」兼容（CSDN 记 04-04，逐字日期仍待核）。

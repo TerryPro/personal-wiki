@@ -2,7 +2,7 @@
 tags: [ai, llm, knowledge-management]
 sources: [llm.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["三层知识架构"]
 ---
 
@@ -37,3 +37,6 @@ aliases: ["三层知识架构"]
 ## 相关页面
 
 - [[sources/llm-wiki-pattern|LLM Wiki 模式（来源摘要）]]
+- [[concepts/schema-driven-agent|Schema 驱动代理]] —— 第三层的展开
+- [[concepts/change-contract|变更契约]] —— 把层间可变性规则显式化到目录命名
+- [[concepts/ingest-query-lint|三大操作（Ingest / Query / Lint）]] —— 静态三层对应的动态循环

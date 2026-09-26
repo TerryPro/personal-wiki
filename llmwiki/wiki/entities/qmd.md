@@ -2,7 +2,7 @@
 tags: [llm-tools, ai]
 sources: [llm.md, How-to-Build-Karpathys-LLM-Wiki.md, llm-wiki-tech-deep-dive-csdn.md, agent-obsidian-llm-wiki-claude-obsidian-csdn.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["qmd"]
 ---
 
@@ -16,7 +16,7 @@ aliases: ["qmd"]
 
 - 混合检索：BM25 + 向量搜索，加 LLM 重排序（re-ranking）
 - 完全本地运行（on-device）
-- 双接口：CLI（LLM 可通过 shell 调用）+ MCP server（LLM 作为原生工具使用）
+- 双接口：CLI（LLM 可通过 shell 调用）+ [[entities/mcp|MCP]] server（LLM 作为原生工具使用）
 
 ## 何时需要
 
@@ -37,4 +37,5 @@ aliases: ["qmd"]
 ## 相关页面
 
 - [[sources/llm-wiki-pattern|LLM Wiki 模式（来源摘要）]]
-- [[concepts/rag|RAG]] —— qmd 代表"检索作为辅助手段"而非核心机制
+- [[concepts/rag|RAG]] —— qmd 代表“检索作为辅助手段”而非核心机制
+- [[entities/mcp|MCP]] —— qmd 的对外接入接口之一

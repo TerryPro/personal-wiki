@@ -19,7 +19,7 @@ aliases: ["LLM Wiki 模式"]
 ## 运转方式
 
 - **三层结构**：原始资料、wiki、schema，见 [[concepts/three-layer-architecture|三层知识架构]]
-- **三种操作**：Ingest（摄取，单来源常触及 10~15 页）、Query（查询，优质答案回填为新页面）、Lint（定期体检，消除矛盾/过时/孤立页面）
+- **三种操作**：Ingest（摄取，单来源常触及 10~15 页）、Query（查询，优质答案回填为新页面）、Lint（定期体检，消除矛盾/过时/孤立页面）——定义、触发条件与频率详见 [[concepts/ingest-query-lint|三大操作（Ingest / Query / Lint）]]
 - **两个特殊文件**：index.md（内容目录，查询入口）与 log.md（时间线，仅追加）；中等规模下 index.md 即可替代向量检索
 - **角色分工**：见 [[concepts/human-llm-division-of-labor|人机分工]]——人负责选料、提问、指导；LLM 负责摘要、交叉引用、归档、记账。作者的使用姿态："一侧开着 LLM agent，另一侧开着 [[entities/obsidian|Obsidian]] 实时浏览结果"
 
@@ -34,7 +34,7 @@ aliases: ["LLM Wiki 模式"]
 - **规模三阶段效应**（[[sources/llm-wiki-datasciencedojo-tutorial|LLM Wiki 30 分钟上手教程（Data Science Dojo）]]）：10 页答基本问题；50 页开始综合你从未显式连接的观点；100+ 页能回答"答案存在于页面间关系"的问题
 - **元框架定位**（[[sources/llm-wiki-tech-deep-dive-csdn|LLM Wiki 技术深度解析（CSDN）]]）：不依赖具体模型或技术栈，定义的是人机协作管理知识的方式，因而比任何实现都更稳定
 - **自生长判据**（[[sources/self-growing-knowledge-base-canghe|自生长个人知识库实战（苍何）]]）：处理完资料后知识库必须"留下变化"——新增概念、补上关联、或暴露一个暂无答案的问题
-- **传播轨迹**：2026-04-04 发布后获 16M+ 浏览、数日内 5000+ stars、一周内 7+ 开源实现（见 [[entities/claude-obsidian-community|Claude-Obsidian 与社区实现]]）；局限与适用区间见 [[concepts/scale-and-hybrid-strategy|规模边界与混合策略]]
+- **传播轨迹**：2026 年 4 月初发布后获约 1500 万~1700 万浏览（多源转述，尾数不一）、数日内 5000+ stars、一周内 7+ 开源实现（见 [[entities/claude-obsidian-community|Claude-Obsidian 与社区实现]]）；局限与适用区间见 [[concepts/scale-and-hybrid-strategy|规模边界与混合策略]]
 - **"idea file" 传播方式**（[[sources/llm-wiki-teardown-juejin|Karpathy LLM Wiki 完整拆解（掘金）]]）：Karpathy 刻意不开源代码仓库，只发布一份抽象的 idea file，让每人的 agent 据此定制自己的实现——“每个实现都不一样，核心模式一致”，这正是本模式作为元框架（而非具体工具）的传播机制
 - **生产环境纪律**（同上，bluewater8008）：团队落地总结的六条教训（先分类、token 预算、实体模板、双输出回填、跨域标签、人类验证）已归入 [[concepts/schema-driven-agent|Schema 驱动代理]] 与 [[concepts/scale-and-hybrid-strategy|规模边界与混合策略]]
 - **名称被挪用（术语分歧）**：[[sources/what-is-the-llm-wiki-karpathys|What Is the LLM Wiki?]] 仍用"LLM wiki"一词，但实际指**为 RAG 检索优化的结构化知识库**——原子单元是 chunk、依赖嵌入与向量库、查询时综合，与本模式（原子单元是页面、摄取时编译、零基础设施）相反。两定义对照见 [[synthesis/llm-wiki-definition-divergence|LLM Wiki 的两种定义]]，检索侧工程细节归入 [[concepts/retrieval-pipeline|检索管线]] 与 [[concepts/chunking-strategies|分块策略]]
@@ -44,6 +44,7 @@ aliases: ["LLM Wiki 模式"]
 - 原始出处：[[sources/llm-wiki-pattern|LLM Wiki 模式（来源摘要）]]
 - 思想源头：[[concepts/memex|Memex]]
 - 落地约束：[[concepts/schema-driven-agent|Schema 驱动代理]]
+- 操作细节：[[concepts/ingest-query-lint|三大操作（Ingest / Query / Lint）]]
 - 辅助工具：[[entities/qmd|qmd]]
 - 范式定位：[[concepts/retrieval-vs-compilation|检索式与编译式范式]]
 - 边界条件：[[concepts/scale-and-hybrid-strategy|规模边界与混合策略]]

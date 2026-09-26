@@ -28,7 +28,7 @@ aliases: ["LLM Wiki 典型案例对照"]
 
 ### 1. Farzapedia —— 个人知识库标杆
 
-开发者 Farza 在 [[entities/andrej-karpathy|Andrej Karpathy]] 发推两天后搭建（详见 [[entities/farzapedia|Farzapedia]]，经 [[sources/llm-wiki-tech-deep-dive-csdn|LLM Wiki 技术深度解析（CSDN）]] 与 [[sources/llm-wiki-teardown-juejin|Karpathy LLM Wiki 完整拆解（掘金）]] 介绍）。将 2500 条日记 + Apple Notes + 部分 iMessage 编译为 400 篇带反向链接的文章。金句"**这个 Wiki 不是给我看的，是给我的 Agent 看的**"点破设计对象。
+开发者 Farza 在 [[entities/andrej-karpathy|Andrej Karpathy]] 发推后数日内搭建（确切间隔待核，见 [[entities/farzapedia|Farzapedia]] 的「时间线待核」条；详见 [[entities/farzapedia|Farzapedia]]，经 [[sources/llm-wiki-tech-deep-dive-csdn|LLM Wiki 技术深度解析（CSDN）]] 与 [[sources/llm-wiki-teardown-juejin|Karpathy LLM Wiki 完整拆解（掘金）]] 介绍）。将 2500 条日记 + Apple Notes + 部分 iMessage 编译为 400 篇带反向链接的文章。金句"**这个 Wiki 不是给我看的，是给我的 Agent 看的**"点破设计对象。
 
 **效果（三层）**：
 - **跨页综合**：agent 曾跨页调取"吉卜力纪录片 + YC 落地页 + 70 年代 Beatles 周边"融合生成落地页设计提案——综合出人类自己都没注意到的联系，印证 [[synthesis/wiki-mode-advantages|Wiki 模式的优势（综合评估）]] 中"agent 长期记忆底座"一项
@@ -52,7 +52,7 @@ HN 用户 vbarsoum 将约 15.5 万词按章节粒度摄取，产出 210 个概�
 ## 备注
 
 - 各案例规模数据来自来源页转述，Farzapedia 与三本商业书实验两组已在 [[synthesis/wiki-mode-advantages|Wiki 模式的优势（综合评估）]] 中列为"积累与复利"优势的核心实证（置信度：高）。
-- 本 vault（llmwiki，9 来源 / 30 页）自身即微型验证：[[concepts/compounding-knowledge|知识复利]] 页在多次摄取中被多个来源充实。
+- 本 vault（llmwiki，10 来源 / 37 页）自身即微型验证：[[concepts/compounding-knowledge|知识复利]] 页在多次摄取中被多个来源充实。
 
 ## 相关页面
 

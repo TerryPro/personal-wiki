@@ -39,7 +39,7 @@ RAG（Retrieval-Augmented Generation，检索增强生成）：将文件集合�
 - **无状态 vs 有状态**：[[sources/karpathy-llm-wiki-complete-guide-starmorph|Karpathy LLM Wiki 完全指南（Starmorph）]] 给出八维对比：RAG 每次查询独立、需向量库基础设施、chunk 级引用、矛盾不可检测；wiki 有状态、一个文件夹即成系统、源级引用、lint 标记矛盾
 - **RAG 仍赢的场景**：百万级文档无法全部预编译、文档频繁变化重摄取不现实、需亚秒级延迟、跨团队多权限共享（详见 [[concepts/scale-and-hybrid-strategy|规模边界与混合策略]]）
 - **新鲜度优势**：[[sources/llm-wiki-datacamp-overview|LLM Wiki：新一代 AI 知识架构（DataCamp 综述）]] 指出 RAG 查询时读活源，文档更新立即反映；wiki 需重摄取才能跟进，存在编译滞后
-- **分歧点（可追溯性）**：Starmorph 认为 wiki 的源级引用优于 RAG 的 lossy chunk 引用；而 [[sources/llm-wiki-datasciencedojo-tutorial|LLM Wiki 30 分钟上手教程（Data Science Dojo）]] 评估 RAG 追溯性高、wiki 只有中等（页面级）。待后续 lint 时结合实践裁定
+- **分歧点（可追溯性）—— 2026-09-26 lint 结案**：Starmorph 认为 wiki 的源级引用优于 RAG 的 lossy chunk 引用，[[sources/llm-wiki-datasciencedojo-tutorial|Data Science Dojo 教程]] 则评估 RAG 追溯性高、wiki 仅中等（页面级）。[[sources/what-is-the-llm-wiki-karpathys|What Is the LLM Wiki?]] 提供第三条证据——「来源引用是防止 agent 悄悄改用训练数据作答的最有效护栏」，且 [[concepts/schema-driven-agent|Schema 驱动代理]] 的 chunk 级 schema 同样含 Source / Chunk ID 字段。**结论：两种路线都能做到源级可追溯，差异在粒度（页面 vs chunk）与维护成本，而非有无。**
 
 ## 正向工程视角（2026-09-26 摄取）
 

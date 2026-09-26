@@ -55,6 +55,11 @@
 核心发现（矛盾 1）：该来源把“LLM wiki”定义为**为 RAG 优化的结构化知识库**，与本库主线的编译式持久 wiki 直接冲突，已单列 [[synthesis/llm-wiki-definition-divergence|LLM Wiki 的两种定义]] 固定分歧。
 归因存疑 1：该文将“原子单元/上下文随 chunk 同行/格式一致/新鲜度”归为 Karpathy 核心原则，与 [[concepts/karpathy-four-principles|Karpathy AI 个性化四原则]] 非同一套框架，已标待复核。
 
+## [2026-09-26] lint | Health check（37 页）
+发现 2 错误、6 警告、5 提示，已全部处理。机械检查全过：断链 0、孤立页 0、index 一致、frontmatter 完整、aliases 与 H1 一致。
+修复：① 统一 Karpathy 推文日期与浏览量表述（04-02/04-03/04-04 → “2026 年 4 月初”；1500 万~1700 万结案），并在 [[entities/farzapedia|Farzapedia]] 与 [[entities/andrej-karpathy|Andrej Karpathy]] 标注时间线待核；② 修正 [[synthesis/llm-wiki-case-studies|LLM Wiki 典型案例对照]] 过时规模（9 来源/30 页 → 10 来源/37 页）；③ 新建 [[concepts/ingest-query-lint|三大操作（Ingest / Query / Lint）]] 与 [[entities/mcp|MCP]] 两页并更新 index；④ [[concepts/rag|RAG]] 可追溯性分歧结案；⑤ [[concepts/karpathy-four-principles|Karpathy AI 个性化四原则]] 补“归因存疑”节与来源；⑥ Codex 归并入 [[entities/claude-code|Claude Code]] 页并补链接；⑦ 补缺失交叉引用（MindStudio→RAG、三层架构/知识复利相关页面、CSDN↔掘金互引）与 3 个来源页的“相关页面”节。
+数据缺口待补：hot.md 省 70% token 单方宣称、Farzapedia X 原文、企业协作/权限、规模阈值第三方复测、NotebookLM/Notion 评测、MCP 现状。
+
 
 
 

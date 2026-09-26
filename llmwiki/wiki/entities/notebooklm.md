@@ -2,7 +2,7 @@
 tags: [llm-tools, ai]
 sources: [llm.md, LLM-Wiki-A-New-AI-Knowledge.md, LLM-wiki-by-andrej-karpathyi-Build.md, self-growing-knowledge-base-workbuddy-obsidian.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["NotebookLM"]
 ---
 
@@ -24,4 +24,4 @@ Google 的文档问答产品。在本知识库中被引用时承担**特定的�
 
 ## 相关页面
 
-- [[concepts/rag|RAG]]、[[concepts/llm-wiki-pattern|LLM Wiki 模式]]
+- [[concepts/rag|RAG]]、[[concepts/llm-wiki-pattern|LLM Wiki 模式]]、[[concepts/retrieval-vs-compilation|检索式与编译式范式]]

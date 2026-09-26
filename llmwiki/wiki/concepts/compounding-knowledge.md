@@ -2,7 +2,7 @@
 tags: [ai, llm, knowledge-management]
 sources: [llm.md, How-to-Build-Karpathys-LLM-Wiki.md, self-growing-knowledge-base-workbuddy-obsidian.md, llm-wiki-tech-deep-dive-csdn.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["知识复利"]
 ---
 
@@ -38,4 +38,6 @@ aliases: ["知识复利"]
 
 - [[sources/llm-wiki-pattern|LLM Wiki 模式（来源摘要）]]
 - [[concepts/rag|RAG]] —— 反面案例：无积累的查询时模式
+- [[concepts/retrieval-vs-compilation|检索式与编译式范式]] —— 复利（编译式）与无积累（检索式）的分水岭
+- [[concepts/ingest-query-lint|三大操作（Ingest / Query / Lint）]] —— 复利的运转机制
 - [[synthesis/llm-wiki-case-studies|LLM Wiki 典型案例对照]] —— 复利的实证案例汇总

@@ -2,7 +2,7 @@
 tags: [ai, llm, llm-wiki]
 sources: [LLM-Wiki-A-New-AI-Knowledge.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["LLM Wiki：新一代 AI 知识架构（DataCamp 综述）"]
 ---
 
@@ -26,13 +26,20 @@ aliases: ["LLM Wiki：新一代 AI 知识架构（DataCamp 综述）"]
 - Agent 是最大受益方：长时运行任务需要把"学到的东西"落盘——重复搜索更少、上下文更浓、跨会话累积学习
 - 六项共性特征：自动知识编译、链接页面、来源归属、知识图谱结构（枢纽/孤立/稠密簇可读）、持久记忆、持续更新；且这些特征相互依存
 - 四大误解：wiki 不替代 RAG；不是又一个向量数据库（返回的页面在摄取前不存在）；并非永不需更新；不只惠及 agent，人类同样受益
-- 现状判断（截至 2026-07）：实现多为个人/小团队开源原型，托管型少见（wiki 的本意是"你的"），验证与规模化是两个未解问题；MCP 是向 agent 暴露 wiki 的自然接口
+- 现状判断（截至 2026-07）：实现多为个人/小团队开源原型，托管型少见（wiki 的本意是"你的"），验证与规模化是两个未解问题；[[entities/mcp|MCP]] 是向 agent 暴露 wiki 的自然接口
 - 知识漂移风险：每次摄取都可能引入小误差，数百次摄取后累积——准确页面可能"悄悄变错"
 
 ## Entities Mentioned
 
-- [[entities/andrej-karpathy|Andrej Karpathy]]、[[entities/obsidian|Obsidian]]、MCP（模型上下文协议，向 agent 暴露 wiki 的自然接口）
+- [[entities/andrej-karpathy|Andrej Karpathy]]、[[entities/obsidian|Obsidian]]、[[entities/mcp|MCP]]（模型上下文协议，向 agent 暴露 wiki 的自然接口）
 
 ## Concepts Covered
 
 - [[concepts/retrieval-vs-compilation|检索式与编译式范式]]、[[concepts/rag|RAG]]、[[concepts/llm-wiki-pattern|LLM Wiki 模式]]、[[concepts/compounding-knowledge|知识复利]]、[[concepts/scale-and-hybrid-strategy|规模边界与混合策略]]、[[concepts/human-llm-division-of-labor|人机分工]]
+
+## 相关页面
+
+- [[sources/llm-wiki-tech-deep-dive-csdn|LLM Wiki 技术深度解析（CSDN）]] —— 中文侧最完整剖析
+- [[sources/llm-wiki-teardown-juejin|Karpathy LLM Wiki 完整拆解（掘金）]] —— 生产教训与 idea file 理念
+- [[sources/karpathy-llm-wiki-complete-guide-starmorph|Karpathy LLM Wiki 完全指南（Starmorph）]] —— 英文侧最系统指南
+- [[synthesis/wiki-mode-advantages|Wiki 模式的优势（综合评估）]] —— 本页四维权衡的数据来源之一

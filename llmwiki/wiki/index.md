@@ -27,10 +27,12 @@
 - [[entities/claude-code|Claude Code]] — Anthropic 终端 agent，LLM Wiki 生态最常用执行端（CLAUDE.md 命名由来）
 - [[entities/notebooklm|NotebookLM]] — Google 文档问答产品，本库中作为 RAG 路线对照样本被引用
 - [[entities/mindstudio|MindStudio]] — 低代码 AI 应用/agent 平台，What Is the LLM Wiki 一文发布方（Remy）
+- [[entities/mcp|MCP]] — 模型上下文协议，把工具与知识库以标准接口暴露给 agent
 
 ## Concepts
 
 - [[concepts/llm-wiki-pattern|LLM Wiki 模式]] — LLM 增量构建并维护持久互链 wiki，取代查询时检索
+- [[concepts/ingest-query-lint|三大操作（Ingest / Query / Lint）]] — 摄取/查询/体检三循环，模式的动态运转机制
 - [[concepts/rag|RAG]] — 检索增强生成：可用但无积累，wiki 模式的对照面
 - [[concepts/compounding-knowledge|知识复利]] — wiki 作为持久产物，摄取与查询回填均使其增值
 - [[concepts/memex|Memex]] — Vannevar Bush 1945 年的个人知识库设想，本模式思想源头

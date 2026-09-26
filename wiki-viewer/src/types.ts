@@ -45,3 +45,8 @@ export interface OutlineItem {
   text: string
   level: number
 }
+
+/** 跨模式任务：Wiki 阅读模式发起，交给 AI 管理模式执行 */
+export type AgentTask =
+  | { type: 'ingest'; rawFile: string; title: string }
+  | { type: 'lint'; issues: string[] }

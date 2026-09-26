@@ -23,9 +23,9 @@ export function getSession(id) {
   return sessions.get(id) || null
 }
 
-/** 任意路径（绝对/相对 cwd=vault）→ vault 相对 posix 路径；越界返回 null */
+/** 任意路径（绝对/相对 cwd=vault）→ vault 相对 posix 路径；越界返回 null（空串 = vault 根） */
 export function toVaultRel(p) {
-  if (!p || typeof p !== 'string') return null
+  if (p == null || typeof p !== 'string') return null
   const abs = isAbsolute(p) ? resolve(p) : resolve(join(VAULT, p))
   const root = resolve(VAULT)
   if (abs !== root && !abs.startsWith(root + '\\') && !abs.startsWith(root + '/')) return null

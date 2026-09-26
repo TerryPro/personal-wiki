@@ -2,7 +2,7 @@
 tags: [llm-tools, agents]
 sources: [llm.md, How-to-Build-Karpathys-LLM-Wiki.md, LLM-wiki-by-andrej-karpathyi-Build.md, agent-obsidian-llm-wiki-claude-obsidian-csdn.md, brain-os-markdown-git-juejin.md, self-growing-knowledge-base-workbuddy-obsidian.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["Claude Code"]
 ---
 
@@ -24,6 +24,16 @@ Anthropic 推出的终端形态 LLM agent（命令行运行，直接读写本地
 
 [[sources/self-growing-knowledge-base-canghe|自生长个人知识库实战（苍何）]] 提醒：agent 选择门槛低（各家都能干），**真正重要的是底层模型质量**——"优质模型带来优质编译"。
 
+## 同层执行端：Codex 与其他 agent（2026-09-26 lint 归并）
+
+本页同时承担「终端型 LLM agent 执行端」的归并说明，避免为每个 agent 建碎片页：
+
+- **Codex**（OpenAI）：以 `AGENTS.md` 作为 schema 文件，本 vault 的 AGENTS.md 即此约定；多源把它与 Claude Code 并列为可互换执行端（[[sources/brain-os-markdown-git-mufeng|Brain OS]]、[[sources/self-growing-knowledge-base-canghe|苍何]]）
+- **Cursor / Gemini CLI / OpenCode / WorkBuddy**：[[sources/brain-os-markdown-git-mufeng|Brain OS]] 定位为“可被多 agent 共同读写的文件协议”，[[entities/claude-obsidian-community|claude-obsidian]] 的 Skill 亦声明跨 agent 通用
+- **共识**：agent 可互换，“真正重要的是底层模型质量”（见下方选型提示）
+
 ## 相关页面
 
+- [[concepts/schema-driven-agent|Schema 驱动代理]] —— CLAUDE.md / AGENTS.md 所约束的对象
+- [[entities/mcp|MCP]] —— 另一条“让 agent 可靠使用工具”的接口路线
 - [[entities/claude-obsidian-community|Claude-Obsidian 与社区实现]]、[[concepts/llm-wiki-pattern|LLM Wiki 模式]]

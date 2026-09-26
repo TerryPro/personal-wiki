@@ -50,3 +50,11 @@ updated: 2026-09-26
 - **术语分歧**：本文把"LLM wiki"用作"为 RAG 优化的结构化知识库"这一**检索式**含义，与本库主线（[[sources/llm-wiki-pattern|llm.md]] 及后续来源）的**编译式持久 wiki** 含义直接冲突。详见 [[synthesis/llm-wiki-definition-divergence|LLM Wiki 的两种定义]]。
 - **归因存疑**：文中"Karpathy 的核心原则"（原子单元/上下文同行/格式一致/新鲜度）与 Karpathy 实际提出的 [[concepts/karpathy-four-principles|AI 个性化四原则]]（显性化/属于你/File over App/BYOAI）是**两套不同框架**，本文未给出具体出处，疑为作者按"agent 可读知识"主题的再归纳。
 - 文章含大量 MindStudio / Remy 产品植入（"Remy 不用自己搭管线"等），属营销内容，事实性主张需与中立来源交叉验证。
+
+## 相关页面
+
+- [[concepts/chunking-strategies|分块策略]]、[[concepts/retrieval-pipeline|检索管线]] —— 本文的主要工程贡献
+- [[concepts/rag|RAG]] —— 本文所属的检索式路线
+- [[synthesis/llm-wiki-definition-divergence|LLM Wiki 的两种定义]] —— 本文术语分歧的固定页
+- [[entities/mindstudio|MindStudio]] —— 本文发布方
+- [[entities/mcp|MCP]] —— 可作 wiki 对外暴露的接口层
