@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, Code2, Columns2, Eye } from 'lucide-react'
+import { ArrowDown, Code2, Columns2, Eye, FileArchive, Sparkles } from 'lucide-react'
 import { marked } from 'marked'
 import { highlightBlocks } from '@/lib/highlight'
-import { applyOutlineIds, getBacklinks, outlineFromHtml, resolveTitle, CATEGORY_META } from '@/lib/wiki'
+import { applyOutlineIds, getBacklinks, getPage, outlineFromHtml, resolveTitle, CATEGORY_META } from '@/lib/wiki'
 import { hidePreview, showPreview } from '@/lib/preview'
 import type { OutlineItem, WikiPage } from '@/types'
 
@@ -20,6 +20,8 @@ interface Props {
   onOutline: (items: OutlineItem[]) => void
   hl: string
   view: View // 视图状态由 App 工具栏控制，便于跨页保持
+  /** raw 页未消化时的「启动摄取」入口（打开 AgentPanel 跑 pi ingest） */
+  onIngest?: (page: WikiPage) => void
 }
 
 const WIKI_RE = /\[\[([^\]]+)\]\]/g
@@ -124,8 +126,8 @@ function rawMarkdown(page: WikiPage): string {
   return lines.join('\n') + page.content
 }
 
-/** 在渲染出的 DOM 里把文本节点中的 [[链接]] 替换为可点击元素；跳过 code/pre/a */
-function hydrateWikiLinks(root: HTMLElement, onHit: (target: string) => void) {
+/** 在渲染出的 DOM 里把文本节点中的 [[链接]] 替换为可点击元素；跳过 code/pre/a（AgentPanel 回答渲染也复用） */
+export function hydrateWikiLinks(root: HTMLElement, onHit: (target: string) => void) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (n) => {
       const parent = n.parentElement
@@ -167,7 +169,7 @@ function hydrateWikiLinks(root: HTMLElement, onHit: (target: string) => void) {
   }
 }
 
-export default function PageView({ page, onNavigate, onOutline, hl, view }: Props) {
+export default function PageView({ page, onNavigate, onOutline, hl, view, onIngest }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const marksRef = useRef<HTMLElement[]>([])
   const [hits, setHits] = useState(0)
@@ -257,6 +259,48 @@ export default function PageView({ page, onNavigate, onOutline, hl, view }: Prop
         </div>
         <h1 className="page-title text-[1.8em] font-semibold leading-[1.28] tracking-tight text-fg">{page.title}</h1>
       </header>
+      {page.category === 'raw' && (
+        <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-card border border-cat-raw/40 bg-cat-raw/10 px-4 py-2.5 text-[12.5px] text-fg-secondary">
+          <FileArchive size={14} strokeWidth={1.9} className="shrink-0" style={{ color: CATEGORY_META.raw.dot }} />
+          <span className="font-medium">原始资料 · agent 只读</span>
+          {page.size != null && <span className="text-fg-muted">{(page.size / 1024).toFixed(1)} KB</span>}
+          {(page.digestedBy?.length ?? 0) > 0 ? (
+            <span className="flex flex-wrap items-center gap-x-1.5">
+              <span className="text-fg-muted">已消化为：</span>
+              {page.digestedBy!.map((id) => {
+                const sp = getPage(id)
+                if (!sp) return null
+                return (
+                  <button
+                    key={id}
+                    onClick={() => onNavigate(sp)}
+                    onMouseEnter={(e) => showPreview({ page: sp }, e.clientX, e.clientY)}
+                    onMouseLeave={hidePreview}
+                    className="wikilink"
+                    title={`跳转到：${sp.title}`}
+                  >
+                    {sp.title}
+                  </button>
+                )
+              })}
+            </span>
+          ) : (
+            <span className="flex items-center gap-2 text-cat-concept">
+              尚未消化
+              {onIngest && (
+                <button
+                  onClick={() => onIngest(page)}
+                  className="flex items-center gap-1 rounded-md border border-accent/50 bg-accent/10 px-2 py-0.5 text-[11.5px] font-medium text-accent transition-colors hover:bg-accent/20"
+                  title="启动 pi 智能体摄取：生成来源摘要页与派生实体/概念（改动经 diff 审核后才会落盘）"
+                >
+                  <Sparkles size={11} />
+                  启动摄取
+                </button>
+              )}
+            </span>
+          )}
+        </div>
+      )}
       {view === 'source' ? (
         <pre className="scroll-mt-4 rounded-card border border-line bg-ink-soft p-5 font-mono text-[12.5px] leading-6 whitespace-pre-wrap text-fg-secondary">
           {rawMarkdown(page)}

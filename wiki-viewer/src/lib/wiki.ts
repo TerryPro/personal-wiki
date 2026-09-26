@@ -1,17 +1,23 @@
 import raw from '@/generated/wiki-data.json'
-import { Boxes, Compass, FileText, Lightbulb, Sparkles, type LucideIcon } from 'lucide-react'
+import { Boxes, Compass, FileArchive, FileText, Lightbulb, Package, Sparkles, type LucideIcon } from 'lucide-react'
 import type { BrokenLink, Category, OutlineItem, WikiData, WikiPage } from '@/types'
 
 export const data = raw as unknown as WikiData
 export const pages = data.pages
 /** 断链清单（构建期计算，已按引用数降序） */
 export const brokenLinks = data.brokenLinks ?? []
+/** raw/ 消化进度（构建期计算） */
+export const digestion = data.digestion ?? { total: 0, digested: 0, undigestedFiles: [] }
+
+/** 参与双链网络解析的分类；raw/output 只可浏览，不可被 [[链接]] 解析命中 */
+const RESOLVABLE = new Set<Category>(['source', 'entity', 'concept', 'synthesis', 'meta'])
 
 /** 标题/slug/别名 → 页面 索引：兼容 [[标题]]、[[目录/文件名|标题]] 与 frontmatter aliases 三种写法 */
 const byTitle = new Map<string, WikiPage>()
 const bySlug = new Map<string, WikiPage>()
 const byAlias = new Map<string, WikiPage>()
 for (const p of pages) {
+  if (!RESOLVABLE.has(p.category)) continue
   byTitle.set(p.title, p)
   bySlug.set(p.slug, p)
   for (const a of p.aliases ?? []) if (!byAlias.has(a)) byAlias.set(a, p)
@@ -39,10 +45,12 @@ export const CATEGORY_META: Record<Category, { label: string; badge: string; dot
   concept: { label: '概念', badge: 'border-cat-concept/40 bg-cat-concept/10 text-cat-concept', dot: 'hsl(var(--cat-concept))', icon: Lightbulb, order: 2 },
   synthesis: { label: '综合', badge: 'border-cat-synthesis/40 bg-cat-synthesis/10 text-cat-synthesis', dot: 'hsl(var(--cat-synthesis))', icon: Sparkles, order: 3 },
   meta: { label: '导航', badge: 'border-line bg-surface text-fg-secondary', dot: 'hsl(var(--fg-muted))', icon: Compass, order: 4 },
+  raw: { label: '原始资料', badge: 'border-cat-raw/40 bg-cat-raw/10 text-cat-raw', dot: 'hsl(var(--cat-raw))', icon: FileArchive, order: 5 },
+  output: { label: '成品', badge: 'border-cat-output/40 bg-cat-output/10 text-cat-output', dot: 'hsl(var(--cat-output))', icon: Package, order: 6 },
 }
 
 export function groupedByCategory(): { category: Category; label: string; items: WikiPage[] }[] {
-  const order: Category[] = ['meta', 'synthesis', 'concept', 'entity', 'source']
+  const order: Category[] = ['meta', 'synthesis', 'concept', 'entity', 'source', 'raw', 'output']
   return order
     .map((c) => ({
       category: c,
@@ -84,12 +92,12 @@ export function search(q: string): SearchHit[] {
   })
 }
 
-/** 图谱边：排除 meta 导航页（否则 log 的海量链接会污染图形）；解析成功的 target→target */
+/** 图谱边：仅限 wiki 知识页（排除 meta 导航页与 raw/output 资产页）；解析成功的 target→target */
 export function buildEdges(): { from: string; to: string }[] {
   const seen = new Set<string>()
   const edges: { from: string; to: string }[] = []
   for (const p of pages)
-    if (p.category !== 'meta')
+    if (p.category !== 'meta' && p.category !== 'raw' && p.category !== 'output')
       for (const l of p.links) {
         const t = resolveTitle(l)
         if (!t || t.category === 'meta') continue
@@ -215,7 +223,7 @@ export interface HealthReport {
 let healthCache: HealthReport | null = null
 export function healthReport(): HealthReport {
   if (healthCache) return healthCache
-  const knowables = pages.filter((p) => p.category !== 'meta')
+  const knowables = pages.filter((p) => p.category !== 'meta' && p.category !== 'raw' && p.category !== 'output')
   const orphans = knowables.filter((p) => getBacklinks(p).length === 0)
   const noOutlinks = knowables.filter((p) => p.links.every((l) => !resolveTitle(l)))
   const stale: HealthReport['stale'] = []

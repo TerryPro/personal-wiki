@@ -194,10 +194,19 @@ export default function Sidebar({ activeId, query, onQuery, onOpen }: Props) {
                 {g.items.map((p) => {
                   const Icon = CATEGORY_META[p.category].icon
                   const isActive = p.id === activeId
+                  const digested = p.category === 'raw' && (p.digestedBy?.length ?? 0) > 0
                   return (
                   <button key={p.id} onClick={() => onOpen(p)} title={p.title} className={`nav-item ${isActive ? 'active' : ''}`}>
                     <Icon size={13} strokeWidth={1.9} className={isActive ? 'shrink-0 text-accent' : 'shrink-0 text-fg-muted/70'} />
                     <span className="truncate">{p.title}</span>
+                    {p.category === 'raw' && (
+                      <span
+                        className={`ml-auto shrink-0 text-[11px] ${digested ? 'text-cat-entity' : 'text-cat-concept'}`}
+                        title={digested ? '已消化：已生成来源摘要页' : '待消化：尚未生成来源摘要页'}
+                      >
+                        {digested ? '✓' : '○'}
+                      </span>
+                    )}
                   </button>
                   )
                 })}

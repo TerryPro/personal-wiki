@@ -95,17 +95,75 @@ for (const name of ['index.md', 'log.md']) {
   if (existsSync(file)) pages.push(toPage(file, 'meta', '导航', ''))
 }
 
-// 一致性告警与前端数据：断链（target 既不是标题也不是 slug）
+/* ————— 全库浏览：raw/ 原始资料与 output/ 成品（不入图谱、不参与断链） ————— */
+const WIKI_CATS = new Set(['source', 'entity', 'concept', 'synthesis', 'meta'])
+
+/** raw/output 页：在 toPage 基础上补充文件元信息，并剪掉双链（不参与 wiki 网络） */
+function toAssetPage(file, catKey, catLabel, slugDir) {
+  const st = statSync(file)
+  const p = toPage(file, catKey, catLabel, slugDir)
+  p.links = []
+  p.size = st.size
+  p.mtime = st.mtime.toISOString()
+  return p
+}
+
+/** 只扫顶层 .md（raw/assets 等子目录不当页面处理） */
+function topMarkdownFiles(dir) {
+  if (!existsSync(dir)) return []
+  return readdirSync(dir)
+    .filter((n) => n.endsWith('.md'))
+    .map((n) => join(dir, n))
+}
+
+const RAW_DIR = join(VAULT, '..', 'raw')
+const OUT_DIR = join(VAULT, '..', 'output')
+
+for (const file of topMarkdownFiles(RAW_DIR)) pages.push(toAssetPage(file, 'raw', '原始资料', 'raw'))
+
+// output/：.md 当页面，其余文件只记为附件条目
+const outputAttachments = []
+if (existsSync(OUT_DIR)) {
+  for (const name of readdirSync(OUT_DIR)) {
+    const file = join(OUT_DIR, name)
+    if (!statSync(file).isFile()) continue
+    if (name.endsWith('.md')) pages.push(toAssetPage(file, 'output', '成品', 'output'))
+    else {
+      const st = statSync(file)
+      outputAttachments.push({ name, size: st.size, mtime: st.mtime.toISOString() })
+    }
+  }
+}
+
+// 消化状态：raw 文件 ←→ source 页 frontmatter sources 反查
+for (const rp of pages) {
+  if (rp.category !== 'raw') continue
+  const fname = rp.file.split('/').pop()
+  rp.digestedBy = pages
+    .filter((p) => p.category === 'source' && p.sources.includes(fname))
+    .map((p) => p.id)
+}
+const rawPages = pages.filter((p) => p.category === 'raw')
+const digestion = {
+  total: rawPages.length,
+  digested: rawPages.filter((p) => p.digestedBy.length > 0).length,
+  undigestedFiles: rawPages.filter((p) => !p.digestedBy.length).map((p) => p.file.split('/').pop()),
+}
+
+// 一致性告警与前端数据：断链（target 既不是标题也不是 slug）——仅限 wiki 页面
 const known = new Set()
 for (const p of pages) {
+  if (!WIKI_CATS.has(p.category)) continue
   known.add(p.title)
   known.add(p.slug)
   for (const a of p.aliases) known.add(a)
 }
 const broken = new Map()
-for (const p of pages)
+for (const p of pages) {
+  if (!WIKI_CATS.has(p.category)) continue
   for (const l of p.links)
     if (!known.has(l)) broken.set(l, [...(broken.get(l) || []), p])
+}
 
 // 断链目标智能候选：补 .md / 去目录前缀 / 同名兄弟目录，能解析到真页面的不算断链
 const suggest = (t) => {
@@ -140,11 +198,11 @@ if (existsSync(assetsSrc)) {
 }
 writeFileSync(
   join(outDir, 'wiki-data.json'),
-  JSON.stringify({ syncedAt: new Date().toISOString(), vault: VAULT.replace(/\\/g, '/'), pages, brokenLinks }, null, 0),
+  JSON.stringify({ syncedAt: new Date().toISOString(), vault: VAULT.replace(/\\/g, '/'), pages, brokenLinks, digestion, outputAttachments }, null, 0),
   'utf8',
 )
 
-console.log(`[sync] ${pages.length} pages from ${VAULT}`)
+console.log(`[sync] ${pages.length} pages from ${VAULT} (raw: ${rawPages.length}, 消化 ${digestion.digested}/${digestion.total}; output 附件: ${outputAttachments.length})`)
 if (brokenLinks.length) {
   console.log(`[sync] ⚠ ${brokenLinks.length} unresolved link target(s):`)
   for (const b of brokenLinks) console.log(`   - [[${b.target}]] ← ${b.from.map((p) => p.title).join(', ')}`)

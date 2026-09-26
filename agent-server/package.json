@@ -1,0 +1,14 @@
+{
+  "name": "agent-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "LLM Wiki agent server — pi coding agent SDK 嵌入，为 wiki-viewer 提供问答/摄取能力",
+  "scripts": {
+    "start": "node index.mjs",
+    "dev": "node --watch index.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.86.0"
+  }
+}

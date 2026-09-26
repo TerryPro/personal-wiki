@@ -6,6 +6,7 @@ interface Props {
 
 const KEYS: [string, string][] = [
   ['Ctrl / Cmd + K（或 O）', '打开命令面板：跳转任意页面或执行命令'],
+  ['Ctrl / Cmd + J', '打开 / 关闭知识库问答面板（pi 智能体）'],
   ['Alt + ← / →', '在历史栈中后退 / 前进'],
   ['Ctrl + F', '聚焦侧栏全文搜索'],
   ['↑ / ↓ + Enter', '面板内选择并打开'],

@@ -28,6 +28,8 @@ export default {
           entity: 'hsl(var(--cat-entity) / <alpha-value>)',
           concept: 'hsl(var(--cat-concept) / <alpha-value>)',
           synthesis: 'hsl(var(--cat-synthesis) / <alpha-value>)',
+          raw: 'hsl(var(--cat-raw) / <alpha-value>)',
+          output: 'hsl(var(--cat-output) / <alpha-value>)',
         },
       },
       fontFamily: {

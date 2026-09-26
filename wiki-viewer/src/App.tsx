@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ClipboardCopy, Focus, List, Moon, PanelLeft, PanelRight, Sun } from 'lucide-react'
+import { Bot, Check, ClipboardCopy, Focus, List, Moon, PanelLeft, PanelRight, Sparkles, Sun } from 'lucide-react'
 import Sidebar from '@/components/Sidebar'
 import PageView, { NEXT_VIEW, type View } from '@/components/PageView'
 import RightRail from '@/components/RightRail'
@@ -7,8 +7,9 @@ import GraphView from '@/components/GraphView'
 import CommandPalette from '@/components/CommandPalette'
 import HelpOverlay from '@/components/HelpOverlay'
 import PreviewCard from '@/components/PreviewCard'
+import AgentPanel from '@/components/AgentPanel'
 import ReaderSettings, { type ReaderCfg } from '@/components/ReaderSettings'
-import { data, getPage, healthReport, pages, resolveTitle, brokenLinks, buildLlmContext, type PaletteAction } from '@/lib/wiki'
+import { data, getPage, healthReport, pages, resolveTitle, brokenLinks, buildLlmContext, digestion, type PaletteAction } from '@/lib/wiki'
 import { CATEGORY_META } from '@/lib/wiki'
 import type { OutlineItem, WikiPage } from '@/types'
 
@@ -28,9 +29,11 @@ const CAT_ORDER = [
   { key: 'concept', label: '概念' },
   { key: 'entity', label: '实体' },
   { key: 'source', label: '来源' },
+  { key: 'raw', label: '原料' },
+  { key: 'output', label: '成品' },
 ] as const
 
-function Welcome({ onOpen }: { onOpen: (p: WikiPage) => void }) {
+function Welcome({ onOpen, onLint }: { onOpen: (p: WikiPage) => void; onLint: (issues: string[]) => void }) {
   const stats = useMemo(() => {
     const by = Object.fromEntries(CAT_ORDER.map((c) => [c.key, 0]))
     for (const p of pages) by[p.category as keyof typeof by]++
@@ -46,6 +49,7 @@ function Welcome({ onOpen }: { onOpen: (p: WikiPage) => void }) {
     { key: 'orphans', n: health.orphans.length, label: '孤立页', hint: '零反链 — 等待下一次摄取连接它', ok: '所有页面都有入链 ✓' },
     { key: 'broken', n: brokenLinks.length, label: '断链', hint: '被引用但未创建的页面', ok: '没有断链 — 引用全部可跳转 ✓' },
     { key: 'stale', n: health.stale.length, label: '陈旧页', hint: '引用的来源页比本页更新', ok: '没有滞后于来源的页面 ✓' },
+    { key: 'undigested', n: digestion.undigestedFiles.length, label: '未消化原料', hint: `raw/ 消化率 ${digestion.digested}/${digestion.total} — 尚未生成来源摘要页的文件`, ok: '全部原料已消化 ✓' },
     { key: 'degree', n: Number(health.avgDegree.toFixed(1)), label: '平均连接度', hint: '每页入链 + 出链（含双向）', ok: '' },
   ]
 
@@ -53,6 +57,22 @@ function Welcome({ onOpen }: { onOpen: (p: WikiPage) => void }) {
     if (key === 'orphans') return health.orphans.map((p) => ({ page: p, text: p.title, sub: p.categoryLabel }))
     if (key === 'broken') return brokenLinks.map((b) => ({ text: b.target, sub: `${b.from.length} 处引用：${b.from.map((f) => f.title).join('、')}` }))
     if (key === 'stale') return health.stale.map((s) => ({ page: s.page, text: s.page.title, sub: `来源页更新：${s.newerSource.title}（${s.newerSource.updated} > ${s.page.updated}）` }))
+    if (key === 'undigested')
+      return digestion.undigestedFiles.map((f) => {
+        const p = getPage(`raw/${f}`)
+        return p ? { page: p, text: f, sub: '等待 ingest 消化' } : { text: f, sub: '等待 ingest 消化' }
+      })
+    return []
+  }
+
+  /** 把当前展开指标的问题清单交给 pi 智能体修复（走 diff 审核门） */
+  const lintIssuesFor = (key: string): string[] => {
+    if (key === 'orphans')
+      return health.orphans.map((p) => `孤立页（零反链）：「${p.title}」（${p.slug}）——请在内容相关的页面中自然地补上指向它的 [[双链]]`)
+    if (key === 'broken')
+      return brokenLinks.map((b) => `断链：[[${b.target}]] 被 ${b.from.map((f) => f.title).join('、')} 引用——请修正链接写法或创建缺失页面`)
+    if (key === 'stale')
+      return health.stale.map((s) => `陈旧页：「${s.page.title}」滞后于来源页「${s.newerSource.title}」（${s.newerSource.updated} > ${s.page.updated}）——请用新来源信息刷新并更新 updated 日期`)
     return []
   }
 
@@ -68,7 +88,7 @@ function Welcome({ onOpen }: { onOpen: (p: WikiPage) => void }) {
         这里展示的是 <span className="font-mono text-[13.5px] text-accent-glow">llmwiki/wiki/</span> 的编译产物：来源摘要、实体、概念与综合页面，由双链织成。从左侧目录、搜索或图谱进入任意一页。
       </p>
 
-      <div className="mt-8 grid grid-cols-5 gap-3">
+      <div className="mt-8 grid grid-cols-7 gap-2.5">
         {CAT_ORDER.map((c) => (
           <div key={c.key} className="rounded-card border border-line bg-surface p-4">
             <div className="text-[24px] font-semibold tabular-nums text-fg">{stats[c.key]}</div>
@@ -80,7 +100,7 @@ function Welcome({ onOpen }: { onOpen: (p: WikiPage) => void }) {
       {/* 健康仪表盘 */}
       <div className="mt-7">
         <div className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted">知识健康</div>
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-5 gap-2.5">
           {metrics.map((m) => (
             <button
               key={m.key}
@@ -119,6 +139,16 @@ function Welcome({ onOpen }: { onOpen: (p: WikiPage) => void }) {
               )}
             </ul>
             {metricItems(openMetric).length === 0 && <div className="px-1 py-3 text-center text-[12px] text-fg-muted">没有问题 — 这一项很健康 ✓</div>}
+            {lintIssuesFor(openMetric).length > 0 && (
+              <button
+                onClick={() => onLint(lintIssuesFor(openMetric))}
+                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-accent/50 bg-accent/10 py-1.5 text-[12px] font-medium text-accent transition-colors hover:bg-accent/20"
+                title="启动 pi 智能体修复这批问题（改动经 diff 审核后才会落盘）"
+              >
+                <Sparkles size={12} />
+                用 LLM 修复这 {lintIssuesFor(openMetric).length} 项问题
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -153,6 +183,9 @@ export default function App() {
   const [hl, setHl] = useState('') // 从搜索进入页面时的页内高亮词
   const [palette, setPalette] = useState(false)
   const [help, setHelp] = useState(false)
+  const [agentOpen, setAgentOpen] = useState(false) // pi 智能体问答面板
+  const [ingestTarget, setIngestTarget] = useState<WikiPage | null>(null) // raw 页「启动摄取」目标
+  const [lintIssues, setLintIssues] = useState<string[] | null>(null) // 健康仪表盘「用 LLM 修复」问题清单
   const [zen, setZen] = useState(false) // 免打扰：隐藏左右栏
   const [zenToc, setZenToc] = useState(false)
   const [view, setView] = useState<View>('read') // 阅读 / 源码 / 分栏，提升到工具栏控制
@@ -303,6 +336,9 @@ export default function App() {
       if (mod && (e.key === 'k' || e.key === 'o')) {
         e.preventDefault()
         setPalette((v) => !v)
+      } else if (mod && e.key === 'j') {
+        e.preventDefault()
+        setAgentOpen((v) => !v)
       } else if (e.altKey && e.key === 'ArrowLeft') {
         e.preventDefault()
         goTo(hist.pos - 1)
@@ -336,9 +372,10 @@ export default function App() {
       { id: 'graph', label: '打开全库图谱', run: () => setMode('graph') },
       { id: 'read', label: '回到阅读视图', run: () => setMode('read') },
       { id: 'help', label: '查看快捷键帮助', run: () => setHelp(true) },
+      { id: 'agent', label: agentOpen ? '关闭知识库问答面板' : '打开知识库问答面板（pi 智能体）', run: () => setAgentOpen((v) => !v) },
       { id: 'home', label: '回到首页（欢迎页）', run: () => setHist((h) => ({ ...h, pos: -1 })) },
     ],
-    [theme],
+    [theme, agentOpen],
   )
 
   const synced = new Date(data.syncedAt)
@@ -460,6 +497,18 @@ export default function App() {
             </button>
             <ReaderSettings value={reader} onChange={setReader} />
             <button
+              onClick={() => setAgentOpen((v) => !v)}
+              aria-label="知识库问答"
+              title={agentOpen ? '关闭问答面板 (Ctrl+J)' : '知识库问答（pi 智能体，Ctrl+J）'}
+              className={`rounded-md border p-1.5 transition-colors ${
+                agentOpen
+                  ? 'border-accent/60 bg-accent/10 text-accent'
+                  : 'border-line bg-surface text-fg-secondary hover:border-accent/50 hover:text-accent'
+              }`}
+            >
+              <Bot size={14} strokeWidth={1.9} />
+            </button>
+            <button
               onClick={() => setPalette(true)}
               aria-label="命令面板"
               title="命令面板 (Ctrl+K)"
@@ -497,17 +546,54 @@ export default function App() {
                   if (activeId && mainRef.current) scrollMemo.current.set(activeId, mainRef.current.scrollTop)
                 }}
               >
-                {page ? <PageView page={page} onNavigate={open} onOutline={onOutline} hl={hl} view={view} /> : <Welcome onOpen={open} />}
+                {page ? (
+                  <PageView
+                    page={page}
+                    onNavigate={open}
+                    onOutline={onOutline}
+                    hl={hl}
+                    view={view}
+                    onIngest={(p) => {
+                      setIngestTarget(p)
+                      setAgentOpen(true)
+                    }}
+                  />
+                ) : (
+                  <Welcome
+                    onOpen={open}
+                    onLint={(issues) => {
+                      setLintIssues(issues)
+                      setAgentOpen(true)
+                    }}
+                  />
+                )}
               </main>
               {page && !zen && rightOpen && <RightRail page={page} onNavigate={open} outline={outline} />}
             </>
           )}
+
+          {/* 智能体侧栏：参与布局的最右列（不遮盖正文，阅读/图谱模式下均可用） */}
+          <AgentPanel
+            open={agentOpen}
+            page={page}
+            onNavigate={(p) => {
+              setAgentOpen(false)
+              open(p)
+            }}
+            ingestTarget={ingestTarget}
+            onIngestConsumed={() => setIngestTarget(null)}
+            lintIssues={lintIssues}
+            onLintConsumed={() => setLintIssues(null)}
+          />
         </div>
       </div>
 
-      {/* 免打扰时的悬浮大纲入口 */}
+      {/* 免打扰时的悬浮大纲入口（智能体侧栏打开时左移避让） */}
       {zen && page && outline.length > 0 && (
-        <div className="fixed bottom-6 right-6 z-30 flex flex-col items-end gap-2">
+        <div
+          className="fixed bottom-6 z-30 flex flex-col items-end gap-2 transition-[right] duration-200"
+          style={{ right: agentOpen ? 'calc(var(--agent-w, 380px) + 1.5rem)' : '1.5rem' }}
+        >
           {zenToc && (
             <div className="max-h-[52vh] w-64 animate-fade-up overflow-y-auto rounded-card border border-line bg-surface p-1.5 shadow-panel">
               {outline.map((o) => (
