@@ -11,6 +11,3 @@ wiki-viewer/tsconfig.tsbuildinfo
 
 # 日志与临时文件
 *.log
-
-# 内层空仓库备份（确认无用后可删除）
-llmwiki/llmwiki-git.bak/
