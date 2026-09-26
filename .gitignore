@@ -1,13 +1,44 @@
-# Obsidian 机器本地状态
+# ——— 依赖与构建产物 ———
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# sync-data.mjs 构建期自动生成（npm run dev/build 前置钩子会重建）
+wiki-viewer/src/generated/
+# raw/assets → public/assets 的同步拷贝产物
+wiki-viewer/public/assets/
+
+# ——— agent-server 运行时 ———
+# ingest/lint 审核门暂存区：改动在此等待人工审 diff，apply/discard 后清空
+llmwiki/.staging/
+
+# ——— Obsidian / OK 机器本地状态 ———
+# workspace* 记录窗口布局与打开状态，因人而异；配置文件（app/appearance 等）保留追踪
 llmwiki/.obsidian/workspace.json
 llmwiki/.obsidian/workspace-mobile.json
+llmwiki/.obsidian/cache
+# .ok/ 自带 .gitignore（local/、worktrees/、principal.json 等机器本地状态）
 
-# 系统文件
+# ——— 环境变量与密钥 ———
+.env
+.env.*
+*.local
+
+# ——— 日志与临时文件 ———
+*.log
+npm-debug.log*
+pnpm-debug.log*
+logs/
+tmp/
+*.tmp
+
+# ——— 操作系统 / 编辑器 ———
 .DS_Store
 Thumbs.db
+desktop.ini
+.idea/
+*.swp
 
-# 构建缓存
-wiki-viewer/tsconfig.tsbuildinfo
-
-# 日志与临时文件
-*.log
+# ——— 嵌套仓库备份（历史上 llmwiki 内嵌空仓库的教训）———
+*-git.bak/
