@@ -45,7 +45,15 @@
 
 ## [2026-09-26] query | Farzapedia 效果——回填至典型案例对照页
 查询 Farzapedia 效果并将其作为新维度回填 [[LLM Wiki 典型案例对照]]：对照表新增“效果”列，Farzapedia 详述拆为三层效果（跨页综合 / 对比 RAG / 传播影响）。
-已刷新该页 sources（+llm-wiki-teardown-juejin.md）与 updated（2026-09-26），统计口径更新为 9 来源 / 30 页；效果数据标注“无第三方复测”。
+已刷新该页 sources（+llm-wiki-teardown-juejin.md）与 updated（2026-09-26），统计口径更新为 9 来源 / 30 页；效果数据标注"无第三方复测"。
+
+## [2026-09-26] ingest | What Is the LLM Wiki?（Karpathy 的 AI 知识库导论）
+处理 What-Is-the-LLM-Wiki-Karpathys.md。新建 5 页、更新 6 页。
+新建来源：[[sources/what-is-the-llm-wiki-karpathys|What Is the LLM Wiki?（Karpathy 的 AI 知识库导论）]]。
+新建实体：[[entities/mindstudio|MindStudio]]。新建概念：[[concepts/chunking-strategies|分块策略]]、[[concepts/retrieval-pipeline|检索管线]]。新建综合：[[synthesis/llm-wiki-definition-divergence|LLM Wiki 的两种定义]]。
+更新 6 页：[[concepts/rag|RAG]]、[[concepts/retrieval-vs-compilation|检索式与编译式范式]]、[[concepts/llm-wiki-pattern|LLM Wiki 模式]]、[[entities/andrej-karpathy|Andrej Karpathy]]、[[concepts/scale-and-hybrid-strategy|规模边界与混合策略]]、[[concepts/schema-driven-agent|Schema 驱动代理]]。
+核心发现（矛盾 1）：该来源把“LLM wiki”定义为**为 RAG 优化的结构化知识库**，与本库主线的编译式持久 wiki 直接冲突，已单列 [[synthesis/llm-wiki-definition-divergence|LLM Wiki 的两种定义]] 固定分歧。
+归因存疑 1：该文将“原子单元/上下文随 chunk 同行/格式一致/新鲜度”归为 Karpathy 核心原则，与 [[concepts/karpathy-four-principles|Karpathy AI 个性化四原则]] 非同一套框架，已标待复核。
 
 
 

@@ -1,8 +1,8 @@
 ---
 tags: [ai, llm, agents]
-sources: [llm.md, How-to-Build-Karpathys-LLM-Wiki.md, llm-wiki-tech-deep-dive-csdn.md, LLM-wiki-by-andrej-karpathyi-Build.md, llm-wiki-teardown-juejin.md]
+sources: [llm.md, How-to-Build-Karpathys-LLM-Wiki.md, llm-wiki-tech-deep-dive-csdn.md, LLM-wiki-by-andrej-karpathyi-Build.md, llm-wiki-teardown-juejin.md, What-Is-the-LLM-Wiki-Karpathys.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["Andrej Karpathy"]
 ---
 
@@ -24,8 +24,14 @@ aliases: ["Andrej Karpathy"]
 - **[[entities/farzapedia|Farzapedia]] 启发他总结 [[concepts/karpathy-four-principles|Karpathy AI 个性化四原则]]**；他在自己的研究中 wiki 已达约 100 篇 / 40 万词而仍可用 index 高效导航
 - **思想资源**：明确引用 Vannevar Bush 1945 论文《As We May Think》与 [[concepts/memex|Memex]] 概念（另见 Jeremy Howard 的 llms.txt：外向让 LLM 懂你的网站，与 LLM Wiki 内向用 LLM 懂你的领域互为镜像）
 
+## 身份与归因（多来源）
+
+- **本文给出的身份链**：[[sources/what-is-the-llm-wiki-karpathys|What Is the LLM Wiki?]] 称其为"前 OpenAI 研究员、特斯拉 AI 总监，当下实用 AI 系统最有影响力的声音之一"，并称他"一直呼吁知识在 agent 能可靠使用前必须先被结构化"
+- **归因漂移警告**：该文把"原子知识单元 / 上下文随 chunk 同行 / 格式一致 / 新鲜度版本化"标为 Karpathy 的"核心原则"，但这与 Karpathy 本人总结的 [[concepts/karpathy-four-principles|AI 个性化四原则]]（显性化/属于你/File over App/BYOAI）并非同一套框架，且未给出处。同一顶帽子下实为两种思路（检索工程 vs 知识资产归属），已记入 [[synthesis/llm-wiki-definition-divergence|LLM Wiki 的两种定义]] 待复核
+
 ## 相关页面
 
 - [[sources/llm-wiki-pattern|LLM Wiki 模式（来源摘要）]]
 - [[concepts/llm-wiki-pattern|LLM Wiki 模式]]
 - [[concepts/karpathy-four-principles|Karpathy AI 个性化四原则]]
+- [[synthesis/llm-wiki-definition-divergence|LLM Wiki 的两种定义]]

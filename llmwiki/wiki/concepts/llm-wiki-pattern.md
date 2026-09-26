@@ -1,8 +1,8 @@
 ---
 tags: [ai, llm, knowledge-management]
-sources: [llm.md, How-to-Build-Karpathys-LLM-Wiki.md, LLM-Wiki-A-New-AI-Knowledge.md, LLM-wiki-by-andrej-karpathyi-Build.md, self-growing-knowledge-base-workbuddy-obsidian.md, llm-wiki-tech-deep-dive-csdn.md, llm-wiki-teardown-juejin.md]
+sources: [llm.md, How-to-Build-Karpathys-LLM-Wiki.md, LLM-Wiki-A-New-AI-Knowledge.md, LLM-wiki-by-andrej-karpathyi-Build.md, self-growing-knowledge-base-workbuddy-obsidian.md, llm-wiki-tech-deep-dive-csdn.md, llm-wiki-teardown-juejin.md, What-Is-the-LLM-Wiki-Karpathys.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["LLM Wiki 模式"]
 ---
 
@@ -37,6 +37,7 @@ aliases: ["LLM Wiki 模式"]
 - **传播轨迹**：2026-04-04 发布后获 16M+ 浏览、数日内 5000+ stars、一周内 7+ 开源实现（见 [[entities/claude-obsidian-community|Claude-Obsidian 与社区实现]]）；局限与适用区间见 [[concepts/scale-and-hybrid-strategy|规模边界与混合策略]]
 - **"idea file" 传播方式**（[[sources/llm-wiki-teardown-juejin|Karpathy LLM Wiki 完整拆解（掘金）]]）：Karpathy 刻意不开源代码仓库，只发布一份抽象的 idea file，让每人的 agent 据此定制自己的实现——“每个实现都不一样，核心模式一致”，这正是本模式作为元框架（而非具体工具）的传播机制
 - **生产环境纪律**（同上，bluewater8008）：团队落地总结的六条教训（先分类、token 预算、实体模板、双输出回填、跨域标签、人类验证）已归入 [[concepts/schema-driven-agent|Schema 驱动代理]] 与 [[concepts/scale-and-hybrid-strategy|规模边界与混合策略]]
+- **名称被挪用（术语分歧）**：[[sources/what-is-the-llm-wiki-karpathys|What Is the LLM Wiki?]] 仍用"LLM wiki"一词，但实际指**为 RAG 检索优化的结构化知识库**——原子单元是 chunk、依赖嵌入与向量库、查询时综合，与本模式（原子单元是页面、摄取时编译、零基础设施）相反。两定义对照见 [[synthesis/llm-wiki-definition-divergence|LLM Wiki 的两种定义]]，检索侧工程细节归入 [[concepts/retrieval-pipeline|检索管线]] 与 [[concepts/chunking-strategies|分块策略]]
 
 ## 相关页面
 

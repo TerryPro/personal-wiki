@@ -1,8 +1,8 @@
 ---
 tags: [ai, llm, llm-wiki]
-sources: [llm-wiki-tech-deep-dive-csdn.md, How-to-Build-Karpathys-LLM-Wiki.md, LLM-Wiki-A-New-AI-Knowledge.md, LLM-wiki-by-andrej-karpathyi-Build.md, agent-obsidian-llm-wiki-claude-obsidian-csdn.md, llm-wiki-teardown-juejin.md]
+sources: [llm-wiki-tech-deep-dive-csdn.md, How-to-Build-Karpathys-LLM-Wiki.md, LLM-Wiki-A-New-AI-Knowledge.md, LLM-wiki-by-andrej-karpathyi-Build.md, agent-obsidian-llm-wiki-claude-obsidian-csdn.md, llm-wiki-teardown-juejin.md, What-Is-the-LLM-Wiki-Karpathys.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["规模边界与混合策略"]
 ---
 
@@ -58,6 +58,14 @@ DataCamp 与 CSDN 深度解析一致：**wiki 与 RAG 互补而非互斥**——
 ## 企业场景局限（掘金拆解文）
 
 面向团队/企业落地时的四条现实约束：① 规模上限不明确（Karpathy 自述 ~100 篇/40 万字，再大一个量级未验证）；② 对模型能力有要求（默认 Claude/GPT-4 级顶级模型，小模型跑 Ingest/Lint 打折）；③ 冷启动需耐心（前 5-10 篇为调校期）；④ 验证成本易被低估（LLM 会无源综合，严肃用途需算入抽查时间）。数据安全、权限控制、多人协作冲突是 Karpathy 方案未涵盖的企业难点。
+
+## 向量库的规模门槛（检索式视角，2026-09-26）
+
+[[sources/what-is-the-llm-wiki-karpathys|What Is the LLM Wiki?]] 从上文未覆盖的**检索侧**给出规模判断，与本页分级互补：
+
+- **小规模（几百篇文档内）**：可不用向量库，内存检索甚至关键词法即可——与上文"< 100 来源时 index.md 足够"相呼应
+- **生产系统**：向量库带来显著更好的语义检索与扩展性；开源 Chroma / pgvector 上手门槛低，托管 Pinecone / Weaviate 承担规模与可用性
+- **块大小与基础设施的耦合**：检索质量直接受 embedding 模型与 chunk 策略影响，见 [[concepts/chunking-strategies|分块策略]] 与 [[concepts/retrieval-pipeline|检索管线]]
 
 ## 相关页面
 

@@ -1,8 +1,8 @@
 ---
 tags: [ai, llm, ml-research]
-sources: [LLM-Wiki-A-New-AI-Knowledge.md, How-to-Build-Karpathys-LLM-Wiki.md, agent-obsidian-llm-wiki-claude-obsidian-csdn.md]
+sources: [LLM-Wiki-A-New-AI-Knowledge.md, How-to-Build-Karpathys-LLM-Wiki.md, agent-obsidian-llm-wiki-claude-obsidian-csdn.md, What-Is-the-LLM-Wiki-Karpathys.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["检索式与编译式范式"]
 ---
 
@@ -34,6 +34,10 @@ aliases: ["检索式与编译式范式"]
 | 个人/团队规模深度研究 | 编译 |
 
 详见 [[concepts/scale-and-hybrid-strategy|规模边界与混合策略]]。多来源分歧时保留各方说法及来源、时间与适用范围，也是编译式特有的能力（检索式只能让矛盾片段并存）。
+
+## 术语混淆的警示（2026-09-26）
+
+[[sources/what-is-the-llm-wiki-karpathys|What Is the LLM Wiki?]] 把"LLM wiki"一词用于**检索式含义**——一个为 [[concepts/rag|RAG]] 检索优化的结构化知识库，并由此展开 [[concepts/retrieval-pipeline|检索管线]]、[[concepts/chunking-strategies|分块策略]]等纯检索工程话题。这与本库主线（编译式持久 wiki）直接冲突，说明同一热词已被两派挪用。两定义的完整对照见 [[synthesis/llm-wiki-definition-divergence|LLM Wiki 的两种定义]]。判断一份英文资料属哪一派，应看其知识单元是 **chunk**（检索）还是**页面**（编译）。
 
 ## 相关页面
 

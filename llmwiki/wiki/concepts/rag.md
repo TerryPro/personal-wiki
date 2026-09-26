@@ -1,8 +1,8 @@
 ---
 tags: [ai, llm, ml-research]
-sources: [llm.md, LLM-Wiki-A-New-AI-Knowledge.md, How-to-Build-Karpathys-LLM-Wiki.md, LLM-wiki-by-andrej-karpathyi-Build.md]
+sources: [llm.md, LLM-Wiki-A-New-AI-Knowledge.md, How-to-Build-Karpathys-LLM-Wiki.md, LLM-wiki-by-andrej-karpathyi-Build.md, What-Is-the-LLM-Wiki-Karpathys.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["RAG"]
 ---
 
@@ -41,8 +41,20 @@ RAG（Retrieval-Augmented Generation，检索增强生成）：将文件集合�
 - **新鲜度优势**：[[sources/llm-wiki-datacamp-overview|LLM Wiki：新一代 AI 知识架构（DataCamp 综述）]] 指出 RAG 查询时读活源，文档更新立即反映；wiki 需重摄取才能跟进，存在编译滞后
 - **分歧点（可追溯性）**：Starmorph 认为 wiki 的源级引用优于 RAG 的 lossy chunk 引用；而 [[sources/llm-wiki-datasciencedojo-tutorial|LLM Wiki 30 分钟上手教程（Data Science Dojo）]] 评估 RAG 追溯性高、wiki 只有中等（页面级）。待后续 lint 时结合实践裁定
 
+## 正向工程视角（2026-09-26 摄取）
+
+[[sources/what-is-the-llm-wiki-karpathys|What Is the LLM Wiki?]] 提供了本库中**第一篇从 RAG 自身出发、正面搭库**的来源（而非把 RAG 当作 wiki 的对照面）。它把 RAG 定义为两步循环——**retrieve** 相关片段、**generate** 仅基于这些片段的答案——并给出完整工程栈：摄入管线、嵌入、向量库、重排序与混合检索、元数据过滤、来源引用。要点：
+
+- **瓶颈在知识层而非模型**：喂进去的上下文不一致/冗余/切分不当，输出就会反映这些问题
+- **切分是最易出错处**：见 [[concepts/chunking-strategies|分块策略]]（固定/语义/层级三类，常用 256–512 token + 50–100 重叠）
+- **先广召回、再紧排序**；混合检索（向量 + BM25）处理精确术语
+- **来源引用是防"agent 悄悄改用训练数据作答"的最有效护栏**
+- 完整组件拆解见 [[concepts/retrieval-pipeline|检索管线]]
+
 ## 相关页面
 
 - [[sources/llm-wiki-pattern|LLM Wiki 模式（来源摘要）]]
+- [[sources/what-is-the-llm-wiki-karpathys|What Is the LLM Wiki?（Karpathy 的 AI 知识库导论）]] —— RAG 正向工程视角
 - [[concepts/retrieval-vs-compilation|检索式与编译式范式]] —— 本页对照面的范式化表述
 - [[concepts/scale-and-hybrid-strategy|规模边界与混合策略]]
+- [[concepts/retrieval-pipeline|检索管线]]、[[concepts/chunking-strategies|分块策略]]

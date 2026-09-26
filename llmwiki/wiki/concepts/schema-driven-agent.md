@@ -1,8 +1,8 @@
 ---
 tags: [ai, llm, agents]
-sources: [llm.md, self-growing-knowledge-base-workbuddy-obsidian.md, agent-obsidian-llm-wiki-claude-obsidian-csdn.md, brain-os-markdown-git-juejin.md, llm-wiki-teardown-juejin.md]
+sources: [llm.md, self-growing-knowledge-base-workbuddy-obsidian.md, agent-obsidian-llm-wiki-claude-obsidian-csdn.md, brain-os-markdown-git-juejin.md, llm-wiki-teardown-juejin.md, What-Is-the-LLM-Wiki-Karpathys.md]
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 aliases: ["Schema 驱动代理"]
 ---
 
@@ -41,6 +41,19 @@ Schema 不是写死的规格，而是"你与 LLM 随时间共同演化（co-evol
 4. **每个任务产出两个输出**：输出一是给用户的答案，输出二是把发现回填 wiki；不在 schema 里明写，LLM 会把知识丢在聊天记录里（即 [[concepts/compounding-knowledge|知识复利]] 的查询回填机制）
 5. **从第一天设计跨域标签**：frontmatter 加 domain 标签；跨领域共享实体是知识图谱最有价值的节点，后期补很痛苦
 6. **人类负责验证**：LLM 会在不引用来源的情况下做综合，需在 schema 强制来源引用并定期抽查——“LLM 是作者，你是主编”（呼应 [[concepts/human-llm-division-of-labor|人机分工]]）
+
+## 检索式 schema 的字段清单（2026-09-26）
+
+[[sources/what-is-the-llm-wiki-karpathys|What Is the LLM Wiki?]] 从 RAG 侧给出了一份**chunk 级**的最小 schema，可与本 vault 的页面级 frontmatter 对照：
+
+- **Content**：分块正文
+- **Source**：来源出处
+- **Created / updated timestamps**：加入时间与最后核验时间
+- **Topic tags / category**：供元数据过滤
+- **Chunk ID**：可追溯性
+- 进阶字段：置信度分数、相关条目链接、主题负责人（subject matter owner）
+
+其设计原则是"按你的检索需求定字段——agent 会用哪些过滤、需要哪些上下文才能信任一块"，与本页"模板约束结构"的页面级实践同构，只是单元从页面降为 chunk。可追溯性维度见 [[concepts/rag|RAG]] 页的分歧点。
 
 ## 相关页面
 
