@@ -48,3 +48,15 @@ pi-web/
 
 # ——— agent-server 本地配置状态（工具白名单开关，因人而异）———
 agent-server/tools.json
+
+# ——— 知识库 vault 内容（本地资料体量大，不入库；注册表 vaults.json 入库）———
+/llmwiki/
+/pi-coding-agent/
+/shiji/
+
+# ——— 史记原始语料（转换脚本 convert-shiji.mjs 保留）———
+/documens/shiji_md/
+/documens/shiji_txt/
+
+# ——— 运行时生成的数据快照（sync-data.mjs 重建）———
+wiki-viewer/public/data/

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ClipboardCopy, Focus, List, Moon, PanelLeft, PanelRight, Sparkles, Sun } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Check, ClipboardCopy, Focus, House, List, Moon, PanelLeft, PanelRight, Sparkles, Sun } from 'lucide-react'
 import ModeSwitch from '@/components/ModeSwitch'
+import VaultSwitcher from '@/components/VaultSwitcher'
 import Sidebar from '@/components/Sidebar'
 import PageView, { NEXT_VIEW, type View } from '@/components/PageView'
 import RightRail from '@/components/RightRail'
@@ -8,9 +9,9 @@ import GraphView from '@/components/GraphView'
 import CommandPalette from '@/components/CommandPalette'
 import HelpOverlay from '@/components/HelpOverlay'
 import ReaderSettings, { type ReaderCfg } from '@/components/ReaderSettings'
-import { data, getPage, healthReport, pages, resolveTitle, brokenLinks, buildLlmContext, digestion, type PaletteAction } from '@/lib/wiki'
+import { data, getPage, healthReport, pages, resolveTitle, brokenLinks, buildLlmContext, digestion, getDataVersion, subscribeData, type PaletteAction } from '@/lib/wiki'
 import { CATEGORY_META } from '@/lib/wiki'
-import type { AgentTask, OutlineItem, WikiPage } from '@/types'
+import type { AgentTask, OutlineItem, VaultEntry, WikiPage } from '@/types'
 
 type Mode = 'read' | 'graph'
 
@@ -36,22 +37,29 @@ const CAT_ORDER = [
 interface Props {
   theme: 'dark' | 'light'
   setTheme: (fn: (t: 'dark' | 'light') => 'dark' | 'light') => void
-  /** 发起跨模式任务（raw 摄取 / 健康修复）→ App 切到 AI 管理模式执行 */
+  /** 发起跨模式任务（raw 摎取 / 健康修复）→ App 切到 AI 管理模式执行 */
   onTask: (task: AgentTask) => void
   /** 切换到 AI 管理模式（工具栏按钮 / Ctrl+J / 命令面板） */
   onSwitchToAi: () => void
+  /** 多知识库 */
+  vaults: VaultEntry[]
+  activeVault: string
+  onSwitchVault: (id: string) => void
+  onNewVault: () => void
 }
 
-function Welcome({ onOpen, onLint }: { onOpen: (p: WikiPage) => void; onLint: (issues: string[]) => void }) {
-  const stats = useMemo(() => {
-    const by = Object.fromEntries(CAT_ORDER.map((c) => [c.key, 0]))
-    for (const p of pages) by[p.category as keyof typeof by]++
-    return by
-  }, [])
-  const quick = ['LLM Wiki 模式', 'Wiki 模式的优势（综合评估）', 'LLM Wiki 典型案例对照']
-    .map(resolveTitle)
-    .filter(Boolean) as WikiPage[]
-  const health = useMemo(healthReport, [])
+function Welcome({ onOpen, onLint, vaultName }: { onOpen: (p: WikiPage) => void; onLint: (issues: string[]) => void; vaultName: string }) {
+  // 实时计算（不用 useMemo 缓存）：数据重载后重渲染即反映最新快照
+  const stats = Object.fromEntries(CAT_ORDER.map((c) => [c.key, 0]))
+  for (const p of pages) stats[p.category as keyof typeof stats]++
+  const quick = (() => {
+    const named = ['LLM Wiki 模式', 'Wiki 模式的优势（综合评估）', 'LLM Wiki 典型案例对照']
+      .map(resolveTitle)
+      .filter(Boolean) as WikiPage[]
+    if (named.length) return named
+    return pages.filter((p) => p.category !== 'meta' && p.category !== 'raw' && p.category !== 'output').slice(0, 3)
+  })()
+  const health = healthReport()
   const [openMetric, setOpenMetric] = useState<string | null>(null)
 
   const metrics = [
@@ -94,7 +102,7 @@ function Welcome({ onOpen, onLint }: { onOpen: (p: WikiPage) => void; onLint: (i
         互链知识网络
       </h1>
       <p className="mt-4 text-[15px] leading-7 text-fg-secondary">
-        这里展示的是 <span className="font-mono text-[13.5px] text-accent-glow">llmwiki/wiki/</span> 的编译产物：来源摘要、实体、概念与综合页面，由双链织成。从左侧目录、搜索或图谱进入任意一页。
+        这里展示的是 <span className="font-mono text-[13.5px] text-accent-glow">{vaultName}/wiki/</span> 的编译产物：来源摘要、实体、概念与综合页面，由双链织成。从左侧目录、搜索或图谱进入任意一页。
       </p>
 
       <div className="mt-8 grid grid-cols-7 gap-2.5">
@@ -162,6 +170,7 @@ function Welcome({ onOpen, onLint }: { onOpen: (p: WikiPage) => void; onLint: (i
         )}
       </div>
 
+      {quick.length > 0 && (
       <div className="mt-7">
         <div className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted">推荐阅读起点</div>
         <div className="flex flex-wrap gap-2">
@@ -176,11 +185,14 @@ function Welcome({ onOpen, onLint }: { onOpen: (p: WikiPage) => void; onLint: (i
           ))}
         </div>
       </div>
+      )}
     </div>
   )
 }
 
-export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi }: Props) {
+export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi, vaults, activeVault, onSwitchVault, onNewVault }: Props) {
+  // 订阅数据版本：loadVault/刷新后重渲染，保证 Welcome/侧栏统计实时
+  useSyncExternalStore(subscribeData, getDataVersion)
   const [hist, setHist] = useState<{ stack: string[]; pos: number }>(() => {
     // 优先 URL 深链，其次恢复上次会话标签页，否则显示欢迎页
     const id = parseHash()?.id ?? localStorage.getItem('wv-last')
@@ -285,6 +297,12 @@ export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi }: Prop
   }
   const back = () => goTo(hist.pos - 1)
   const fwd = () => goTo(hist.pos + 1)
+  /** 回首页（欢迎页） */
+  const goHome = useCallback(() => {
+    setHist({ stack: [], pos: -1 })
+    setQuery('')
+    setMode('read')
+  }, [])
 
   // 切页时：视图回阅读、复制反馈复位
   useEffect(() => {
@@ -366,7 +384,7 @@ export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi }: Prop
       { id: 'graph', label: '打开全库图谱', run: () => setMode('graph') },
       { id: 'read', label: '回到阅读视图', run: () => setMode('read') },
       { id: 'help', label: '查看快捷键帮助', run: () => setHelp(true) },
-      { id: 'ai', label: '进入工作台（pi 智能体）', run: onSwitchToAi },
+      { id: 'ai', label: '进入工作模式（pi 智能体）', run: onSwitchToAi },
       { id: 'home', label: '回到首页（欢迎页）', run: () => setHist((h) => ({ ...h, pos: -1 })) },
     ],
     [theme, setTheme, onSwitchToAi],
@@ -377,11 +395,12 @@ export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi }: Prop
 
   return (
     <div className="flex h-full">
-      {!zen && leftOpen && <Sidebar activeId={activeId} query={query} onQuery={setQuery} onOpen={open} />}
+      {!zen && leftOpen && <Sidebar activeId={activeId} query={query} onQuery={setQuery} onOpen={open} onHome={goHome} />}
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* toolbar */}
         <header className="flex h-[46px] shrink-0 items-center gap-2 border-b border-line bg-ink-soft px-3">
+          <VaultSwitcher vaults={vaults} activeVault={activeVault} onSwitch={onSwitchVault} onNew={onNewVault} />
           <ModeSwitch mode="wiki" onSwitch={onSwitchToAi} />
 
           <button
@@ -397,6 +416,10 @@ export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi }: Prop
             <PanelLeft size={14} strokeWidth={1.9} />
           </button>
 
+          <button onClick={goHome} aria-label="回到首页" title="回到首页（欢迎页）"
+            className="rounded-md p-1.5 text-fg-muted transition-colors hover:bg-surface-raised hover:text-fg">
+            <House size={15} strokeWidth={2} />
+          </button>
           <button onClick={back} disabled={hist.pos <= 0} aria-label="后退" title="后退 (Alt+←)"
             className="rounded-md p-1.5 text-fg-muted transition-colors hover:bg-surface-raised hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="m15 18-6-6 6-6" /></svg>
@@ -420,7 +443,7 @@ export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi }: Prop
                 key={m}
                 onClick={() => setMode(m)}
                 className={`rounded-md px-3 py-1 text-[12.5px] font-medium transition-all duration-150 ${
-                  mode === m ? 'bg-surface-raised text-fg shadow-panel' : 'text-fg-muted hover:text-fg-secondary'
+                  mode === m ? 'bg-surface-raised text-fg' : 'text-fg-muted hover:text-fg-secondary'
                 }`}
               >
                 {label}
@@ -491,7 +514,6 @@ export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi }: Prop
             >
               <Focus size={14} strokeWidth={1.9} />
             </button>
-            <ReaderSettings value={reader} onChange={setReader} />
             <button
               onClick={() => setPalette(true)}
               aria-label="命令面板"
@@ -501,6 +523,7 @@ export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi }: Prop
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M6 3v12a3 3 0 0 0 3 3h7" /><path d="m13 15 3 3-3 3" /><path d="M18 3v12" /></svg>
               <kbd className="font-mono text-[10px] opacity-70">Ctrl K</kbd>
             </button>
+            <ReaderSettings value={reader} onChange={setReader} />
             <button
               onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
               aria-label={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
@@ -545,6 +568,7 @@ export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi }: Prop
                   <Welcome
                     onOpen={open}
                     onLint={(issues) => onTask({ type: 'lint', issues })}
+                    vaultName={vaults.find((v) => v.id === activeVault)?.name ?? activeVault}
                   />
                 )}
               </main>

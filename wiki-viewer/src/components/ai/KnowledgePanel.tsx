@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, CircleDashed, FileArchive, RefreshCw, Sparkles, UserX } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { AlertTriangle, CircleDashed, FileArchive, Link2, Loader2, RefreshCw, Sparkles, Upload, UserX } from 'lucide-react'
 import { brokenLinks, digestion, healthReport } from '@/lib/wiki'
-import { listStagingSessions, type StagingSessionInfo } from '@/lib/agent'
+import { clipUrl, listStagingSessions, uploadRawFiles, type StagingSessionInfo } from '@/lib/agent'
 import type { AgentTask } from '@/types'
 
 interface Props {
@@ -33,6 +33,105 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Empty({ text }: { text: string }) {
   return <div className="px-1 py-2 text-[11.5px] text-fg-muted">{text}</div>
+}
+
+/** 收件箱：拖拽/选择本地文件上传 + URL 剪藏，写入 vault 的 raw/（不经审核门） */
+function RawInbox({ disabled, onAdded }: { disabled: boolean; onAdded: () => void }) {
+  const [url, setUrl] = useState('')
+  const [dragOver, setDragOver] = useState(false)
+  const [status, setStatus] = useState<{ kind: 'ok' | 'err' | 'busy'; text: string } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const handleFiles = async (list: FileList | File[]) => {
+    const arr = [...list]
+    if (!arr.length || disabled) return
+    setStatus({ kind: 'busy', text: `正在上传 ${arr.length} 个文件…` })
+    try {
+      const r = await uploadRawFiles(arr)
+      setStatus({ kind: 'ok', text: `已添加 ${r.written.length} 个文件到 raw/` })
+      onAdded()
+    } catch (e) {
+      setStatus({ kind: 'err', text: String((e as Error)?.message || e) })
+    }
+  }
+
+  const handleClip = async () => {
+    const u = url.trim()
+    if (!u || disabled) return
+    setStatus({ kind: 'busy', text: '正在抓取网页…' })
+    try {
+      const r = await clipUrl(u)
+      setUrl('')
+      setStatus({ kind: 'ok', text: `已剪藏「${r.title}」到 raw/` })
+      onAdded()
+    } catch (e) {
+      setStatus({ kind: 'err', text: String((e as Error)?.message || e) })
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* 拖拽上传区 */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); if (!disabled) setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); if (!disabled) handleFiles(e.dataTransfer.files) }}
+        onClick={() => !disabled && fileRef.current?.click()}
+        className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed px-3 py-4 text-center transition-colors ${
+          dragOver ? 'border-accent bg-accent/10' : 'border-line bg-ink-soft hover:border-accent/50'
+        } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+      >
+        <Upload size={16} className="text-fg-muted" />
+        <span className="text-[11.5px] text-fg-secondary">拖拽文件到此处，或点击选择</span>
+        <span className="text-[10.5px] text-fg-muted">.md / .txt 存入 raw/，图片存入 raw/assets/</span>
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => { if (e.target.files) handleFiles(e.target.files); e.target.value = '' }}
+        />
+      </div>
+
+      {/* URL 剪藏 */}
+      <div className="flex items-center gap-1.5">
+        <div className="relative min-w-0 flex-1">
+          <Link2 size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-fg-muted" />
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleClip() }}
+            placeholder="粘贴网址剪藏为 Markdown…"
+            disabled={disabled}
+            className="w-full rounded-md border border-line bg-ink-soft py-1 pl-6 pr-2 text-[11.5px] text-fg placeholder:text-fg-muted/60 focus:border-accent/60 focus:outline-none disabled:opacity-50"
+          />
+        </div>
+        <button
+          onClick={handleClip}
+          disabled={disabled || !url.trim()}
+          className="shrink-0 rounded-md border border-accent/50 bg-accent/10 px-2 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-40"
+        >
+          剪藏
+        </button>
+      </div>
+
+      {/* 状态反馈 */}
+      {status && (
+        <div
+          className={`flex items-start gap-1.5 rounded-md px-2 py-1.5 text-[11px] leading-4 ${
+            status.kind === 'ok'
+              ? 'bg-cat-entity/10 text-cat-entity'
+              : status.kind === 'err'
+                ? 'bg-cat-concept/10 text-cat-concept'
+                : 'bg-surface-raised text-fg-muted'
+          }`}
+        >
+          {status.kind === 'busy' && <Loader2 size={11} className="mt-px shrink-0 animate-spin" />}
+          <span className="min-w-0 break-words">{status.text}</span>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function FixButton({ n, onClick, disabled }: { n: number; onClick: () => void; disabled: boolean }) {
@@ -67,8 +166,18 @@ export default function KnowledgePanel({ onStartTask, onShowStaging, busy, onlin
 
   const disabled = busy || online !== true
 
+  /** 收件箱写入成功：server 已重跑 sync，稍延后整页刷新以加载新快照 */
+  const handleAdded = useCallback(() => {
+    setTimeout(() => window.location.reload(), 1400)
+  }, [])
+
   return (
     <div className="flex h-full flex-col overflow-y-auto">
+      {/* 收件箱：添加新原料 */}
+      <Section title="收件箱 · 添加原料">
+        <RawInbox disabled={disabled} onAdded={handleAdded} />
+      </Section>
+
       {/* 待消化原料 */}
       <Section title={`待消化原料 · ${digestion.digested}/${digestion.total}`}>
         {digestion.undigestedFiles.length === 0 ? (

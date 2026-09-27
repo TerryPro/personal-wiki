@@ -2,6 +2,13 @@
 // 持久化会话聊天（chat）、写入任务（task=ingest/lint）、会话管理、文件浏览、模型与 Skills 信息。
 // dev 下经 vite proxy /agent → 127.0.0.1:8787；server 未启动时 health 返回 null，UI 优雅降级。
 
+import type { VaultEntry } from '@/types'
+
+/* ————— 多知识库：当前活跃 vault（所有请求自动携带） ————— */
+let _vaultId = 'llmwiki'
+export function setAgentVault(id: string) { _vaultId = id }
+export function getAgentVault() { return _vaultId }
+
 export interface AgentToolCall {
   id?: string | null
   name: string
@@ -212,7 +219,7 @@ export async function chat(
   onEvent: (e: AgentStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  return streamAgent('/agent/chat', req, onEvent, signal)
+  return streamAgent('/agent/chat', { ...req, vaultId: _vaultId }, onEvent, signal)
 }
 
 /** 写入任务（ingest/lint）：改动经审核门暂存，结束推送 diffs 事件 */
@@ -221,23 +228,27 @@ export async function runTask(
   onEvent: (e: AgentStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  return streamAgent('/agent/task', req, onEvent, signal)
+  return streamAgent('/agent/task', { ...req, vaultId: _vaultId }, onEvent, signal)
 }
 
 /* ————— 会话管理 ————— */
 
-export const listSessions = () => getJson<{ sessions: SessionInfo[] }>('/agent/sessions').then((r) => r.sessions)
+export const listSessions = () => getJson<{ sessions: SessionInfo[] }>(`/agent/sessions?vaultId=${encodeURIComponent(_vaultId)}`).then((r) => r.sessions)
 
 export const getSessionMessages = (id: string) =>
-  getJson<{ sessionId: string; name: string | null; messages: RestoredMessage[] }>(
-    `/agent/sessions/${encodeURIComponent(id)}/messages`,
-  )
+  getJson<{
+    sessionId: string
+    name: string | null
+    messages: RestoredMessage[]
+    /** 活跃缓存会话的实时用量（cost + 上下文）；非活跃为 null */
+    usage?: { cost: number; contextUsage: Record<string, number> | null } | null
+  }>(`/agent/sessions/${encodeURIComponent(id)}/messages?vaultId=${encodeURIComponent(_vaultId)}`)
 
 export const renameSession = (id: string, name: string) =>
-  postJson<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}/rename`, { name })
+  postJson<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}/rename`, { name, vaultId: _vaultId })
 
 export async function deleteSession(id: string): Promise<{ ok: boolean }> {
-  const res = await fetch(`/agent/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const res = await fetch(`/agent/sessions/${encodeURIComponent(id)}?vaultId=${encodeURIComponent(_vaultId)}`, { method: 'DELETE' })
   const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
   if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
   return { ok: true }
@@ -246,35 +257,43 @@ export async function deleteSession(id: string): Promise<{ ok: boolean }> {
 /* ————— 审核门 ————— */
 
 export const listStagingSessions = () =>
-  getJson<{ sessions: StagingSessionInfo[] }>('/agent/staging').then((r) => r.sessions)
+  getJson<{ sessions: StagingSessionInfo[] }>(`/agent/staging?vaultId=${encodeURIComponent(_vaultId)}`).then((r) => r.sessions)
 
 /** 暂存会话完整 diff（前端刷新后恢复审核卡用） */
 export const getStagingDetail = (id: string) =>
   getJson<{ sessionId: string; files: DiffFile[] }>(`/agent/staging/${encodeURIComponent(id)}`)
 
-export const applyStaging = (sessionId: string) =>
-  postJson<{ ok: boolean; changed: string[]; synced: boolean }>('/agent/apply', { sessionId })
+export const applyStaging = (sessionId: string, files?: string[]) =>
+  postJson<{ ok: boolean; changed: string[]; synced: boolean; done: boolean; remaining: number }>('/agent/apply', {
+    sessionId,
+    vaultId: _vaultId,
+    ...(files?.length ? { files } : {}),
+  })
 
-export const discardStaging = (sessionId: string) =>
-  postJson<{ ok: boolean }>('/agent/discard', { sessionId })
+export const discardStaging = (sessionId: string, files?: string[]) =>
+  postJson<{ ok: boolean; done: boolean; remaining: number }>('/agent/discard', {
+    sessionId,
+    vaultId: _vaultId,
+    ...(files?.length ? { files } : {}),
+  })
 
 /** 把问答结果保存为 output/ 成品页 */
 export const saveOutput = (req: { title: string; content: string; question?: string }) =>
-  postJson<{ ok: boolean; path: string; synced: boolean }>('/agent/save-output', req)
+  postJson<{ ok: boolean; path: string; synced: boolean }>('/agent/save-output', { ...req, vaultId: _vaultId })
 
 /* ————— 文件浏览 ————— */
 
 export const listFiles = (path = '') =>
-  getJson<{ path: string; entries: FileEntry[] }>(`/agent/files?path=${encodeURIComponent(path)}`)
+  getJson<{ path: string; entries: FileEntry[] }>(`/agent/files?vaultId=${encodeURIComponent(_vaultId)}&path=${encodeURIComponent(path)}`)
 
 export const readFile = (path: string) =>
   getJson<{ path: string; size: number; truncated: boolean; content: string }>(
-    `/agent/file?path=${encodeURIComponent(path)}`,
+    `/agent/file?vaultId=${encodeURIComponent(_vaultId)}&path=${encodeURIComponent(path)}`,
   )
 
 /** @ 引用菜单：vault 内文件模糊搜索 */
 export const searchFiles = (q: string) =>
-  getJson<{ results: { path: string; size: number }[] }>(`/agent/search?q=${encodeURIComponent(q)}`).then(
+  getJson<{ results: { path: string; size: number }[] }>(`/agent/search?vaultId=${encodeURIComponent(_vaultId)}&q=${encodeURIComponent(q)}`).then(
     (r) => r.results,
   )
 
@@ -288,7 +307,7 @@ export const compactSession = (sessionId: string) =>
 export const getModels = () =>
   getJson<{ models: ModelInfo[]; defaultModel?: ModelInfo | null }>('/agent/models')
 
-export const getSkills = () => getJson<{ skills: SkillInfo[] }>('/agent/skills').then((r) => r.skills)
+export const getSkills = () => getJson<{ skills: SkillInfo[] }>(`/agent/skills?vaultId=${encodeURIComponent(_vaultId)}`).then((r) => r.skills)
 
 /* ————— 插件（extensions） ————— */
 
@@ -305,7 +324,7 @@ export interface ExtensionsPayload {
   errors: { path: string; error: string }[]
 }
 
-export const getExtensions = () => getJson<ExtensionsPayload>('/agent/extensions')
+export const getExtensions = () => getJson<ExtensionsPayload>(`/agent/extensions?vaultId=${encodeURIComponent(_vaultId)}`)
 
 /** 工具目录 + 各模式白名单（设置面板展示与开关） */
 export interface ToolCatalogItem {
@@ -316,3 +335,48 @@ export const getTools = () =>
   getJson<{ catalog: ToolCatalogItem[]; modes: Record<string, string[]> }>('/agent/tools')
 export const setModeTools = (mode: string, tools: string[]) =>
   putJson<{ ok: boolean; modes: Record<string, string[]> }>('/agent/tools', { mode, tools })
+
+/* ————— 多知识库管理 ————— */
+
+/** 获取 vault 注册表 */
+export const listVaults = () => getJson<{ vaults: VaultEntry[] }>('/agent/vaults').then((r) => r.vaults)
+
+/** 新建知识库（server 端创建目录结构 + 更新注册表 + 重跑 sync） */
+export const createVault = (params: { id: string; name: string; path?: string; description?: string }) =>
+  postJson<{ ok: boolean; vaults: VaultEntry[] }>('/agent/vaults/new', params)
+
+/* ————— raw/ 收件箱：本地上传 + URL 剪藏 ————— */
+
+export interface UploadedFile {
+  path: string
+  bytes: number
+}
+
+/** 读取 File 为 base64（去掉 data:...;base64, 前缀） */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = String(reader.result || '')
+      const comma = result.indexOf(',')
+      resolve(comma >= 0 ? result.slice(comma + 1) : result)
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
+/** 上传本地文件到 vault 的 raw/（图片自动进 raw/assets/） */
+export async function uploadRawFiles(files: File[]): Promise<{ ok: boolean; written: UploadedFile[]; synced: boolean }> {
+  const payload = await Promise.all(
+    files.map(async (f) => ({ name: f.name, contentBase64: await fileToBase64(f) })),
+  )
+  return postJson('/agent/raw/upload', { vaultId: _vaultId, files: payload })
+}
+
+/** 剪藏网址：server 抓取网页转 Markdown 存入 raw/ */
+export const clipUrl = (url: string) =>
+  postJson<{ ok: boolean; path: string; title: string; bytes: number; synced: boolean }>('/agent/raw/clip', {
+    vaultId: _vaultId,
+    url,
+  })

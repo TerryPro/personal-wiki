@@ -10,9 +10,9 @@ interface Props {
   onOpen: (page: WikiPage) => void
 }
 
-const graphPages = pages.filter((p) => p.category !== 'meta')
-
 export default function GraphView({ activeId, onOpen }: Props) {
+  // 图谱页集：组件内 memo（随 vault 重挂载重算），不可放模块级——否则切库后与 edges 不同步导致崩溃
+  const graphPages = useMemo(() => pages.filter((p) => p.category !== 'meta'), [])
   const boxRef = useRef<HTMLDivElement>(null)
   const [, setTick] = useState(0)
   const [hoverId, setHoverId] = useState<string | null>(null)

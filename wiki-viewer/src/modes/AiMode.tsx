@@ -1,46 +1,73 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Bot, FolderTree, HeartPulse, Moon, Settings2, Sun } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
+import { Bot, FolderTree, HeartPulse, ListOrdered, Moon, PanelLeft, PanelRight, Settings2, Sun } from 'lucide-react'
 import ModeSwitch from '@/components/ModeSwitch'
+import VaultSwitcher from '@/components/VaultSwitcher'
 import Brand from '@/components/Brand'
-import ChatWindow, { type Msg } from '@/components/ai/ChatWindow'
+import ChatWindow from '@/components/ai/ChatWindow'
 import ChatInput from '@/components/ai/ChatInput'
 import SessionSidebar from '@/components/ai/SessionSidebar'
 import KnowledgePanel from '@/components/ai/KnowledgePanel'
 import FileExplorer from '@/components/ai/FileExplorer'
 import PreviewPanel from '@/components/ai/PreviewPanel'
+import ReviewPanel from '@/components/ai/ReviewPanel'
+import AgentInfo from '@/components/ai/AgentInfo'
+import SessionIndex, { type IndexMode } from '@/components/ai/SessionIndex'
 import SettingsPanel, { type ModelChoice } from '@/components/ai/SettingsPanel'
 import ChatSettings, { CHAT_PADY, DEFAULT_CHAT_CFG, type ChatCfg } from '@/components/ai/ChatSettings'
 import {
   agentHealth,
-  applyStaging,
   chat,
   compactSession,
   deleteSession,
-  discardStaging,
   getModels,
   getSkills,
-  getStagingDetail,
   getSessionMessages,
   listSessions,
+  listStagingSessions,
   renameSession,
   runTask,
   saveOutput,
-  type AgentStreamEvent,
   type SessionInfo,
   type SkillInfo,
-  type TurnView,
+  type StagingSessionInfo,
 } from '@/lib/agent'
-import type { AgentTask, WikiPage } from '@/types'
+import {
+  addDiffsListener,
+  appendAssistantNote,
+  clearMsgs,
+  dismissReview,
+  getState as getStreamState,
+  isReviewDismissed,
+  loadSession,
+  patchMsg,
+  resetForNewSession,
+  runStream as storeRunStream,
+  setDiffsState,
+  setSessionName as setStoreSessionName,
+  setUsage as setStoreUsage,
+  stop as stopStream,
+  subscribe as subscribeStream,
+  undismissReview,
+} from '@/lib/agentStream'
+import type { AgentTask, VaultEntry, WikiPage } from '@/types'
 import { version as VIEWER_VERSION } from '../../package.json'
 
 interface Props {
   theme: 'dark' | 'light'
   setTheme: (fn: (t: 'dark' | 'light') => 'dark' | 'light') => void
   onSwitchToWiki: () => void
-  /** 阅读模式发起的任务（摄取/修复），进入后自动执行 */
+  /** 阅读模式发起的任务（摎取/修复），进入后自动执行 */
   pendingTask: AgentTask | null
   onTaskConsumed: () => void
   onOpenWikiPage: (p: WikiPage) => void
+  /** 多知识库 */
+  vaults: VaultEntry[]
+  activeVault: string
+  onSwitchVault: (id: string) => void
+  onNewVault: () => void
+  /** App 层 toast 点击后请求打开的审查会话 */
+  reviewRequest: string | null
+  onReviewRequestConsumed: () => void
 }
 
 type LeftTab = 'sessions' | 'files' | 'knowledge' | 'settings'
@@ -52,17 +79,34 @@ const TABS: { key: LeftTab; label: string; icon: typeof Bot }[] = [
   { key: 'settings', label: '设置', icon: Settings2 },
 ]
 
-export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, onTaskConsumed, onOpenWikiPage }: Props) {
+export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, onTaskConsumed, onOpenWikiPage, vaults, activeVault, onSwitchVault, onNewVault, reviewRequest, onReviewRequestConsumed }: Props) {
   const [online, setOnline] = useState<boolean | null>(null)
   const [sessions, setSessions] = useState<SessionInfo[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
-  const [sessionName, setSessionName] = useState<string | null>(null)
-  const [msgs, setMsgs] = useState<Msg[]>([])
-  const [busy, setBusy] = useState(false)
   const [input, setInput] = useState('')
-  const [usage, setUsage] = useState<{ cost: number; tokens: number | null } | null>(null)
+  // 会话流状态来自模块级单例 store（切换模式卸载 AiMode 也不丢流）
+  const snap = useSyncExternalStore(subscribeStream, getStreamState)
+  const { msgs, busy, activeId, sessionName, usage, lastModelName } = snap
   const [leftTab, setLeftTab] = useState<LeftTab>('sessions')
+  // 左栏展开/收拢（持久化），与阅读模式 PanelLeft 开关对齐
+  const [leftOpen, setLeftOpen] = useState(() => localStorage.getItem('wv-panel-l-ai') !== '0')
+  useEffect(() => localStorage.setItem('wv-panel-l-ai', leftOpen ? '1' : '0'), [leftOpen])
   const [previewPath, setPreviewPath] = useState<string | null>(null)
+  // 右栏 [文档|审查] tab 与当前审查会话；宽度拖拽持久化；rightOpen 为右栏整体开关
+  const [rightTab, setRightTab] = useState<'review' | 'preview'>(() =>
+    localStorage.getItem('wv-right-tab') === 'review' ? 'review' : 'preview',
+  )
+  useEffect(() => localStorage.setItem('wv-right-tab', rightTab), [rightTab])
+  const [rightOpen, setRightOpen] = useState(() => localStorage.getItem('wv-panel-r-ai') === '1')
+  useEffect(() => localStorage.setItem('wv-panel-r-ai', rightOpen ? '1' : '0'), [rightOpen])
+  const [reviewSessionId, setReviewSessionId] = useState<string | null>(null)
+  const [stagingPending, setStagingPending] = useState<StagingSessionInfo[]>([])
+  // 对话索引：off 关闭 / mini 收缩 minimap / full 展开侧栏；默认 mini
+  const [indexMode, setIndexMode] = useState<'off' | IndexMode>('mini')
+  const [rightW, setRightW] = useState(() => {
+    const n = Number(localStorage.getItem('wv-right-w'))
+    return n >= 340 && n <= 760 ? n : 460
+  })
+  useEffect(() => localStorage.setItem('wv-right-w', String(rightW)), [rightW])
   const [model, setModel] = useState<ModelChoice | null>(() => {
     try {
       return JSON.parse(localStorage.getItem('wv-ai-model') ?? 'null')
@@ -89,8 +133,6 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   }
   // 思考强度（会话级，持久化）与最近一次 turn 回报的模型名
   const [thinkingLevel, setThinkingLevel] = useState<string>(() => localStorage.getItem('wv-ai-thinking') || 'medium')
-  const [lastModelName, setLastModelName] = useState<string | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
   const busyRef = useRef(false)
   busyRef.current = busy
   const startedTask = useRef<AgentTask | null>(null)
@@ -103,9 +145,26 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     }
   }, [])
 
-  // 挂载时探测 server 并加载会话列表 / skills
+  const refreshPending = useCallback(async () => {
+    try {
+      setStagingPending(await listStagingSessions())
+    } catch {
+      setStagingPending([])
+    }
+  }, [])
+
+  // 流内 session 事件 / 流结束 → 刷新侧栏会话列表 + 待审暂存
   useEffect(() => {
-    agentHealth().then((h) => {
+    if (snap.sessionsVersion > 0) {
+      refreshSessions()
+      refreshPending()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snap.sessionsVersion])
+
+  // 挂载时探测 server 并加载会话列表 / skills；若有未关闭过的待审暂存则自动打开审查
+  useEffect(() => {
+    agentHealth().then(async (h) => {
       setOnline(!!h)
       if (h) {
         setPiVersion(h.piVersion ?? null)
@@ -116,97 +175,14 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
         getSkills()
           .then(setSkills)
           .catch(() => setSkills([]))
+        const pend = await listStagingSessions().catch(() => [] as StagingSessionInfo[])
+        setStagingPending(pend)
+        const target = pend.find((s) => !isReviewDismissed(s.id))
+        if (target) openReview(target.id)
       }
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshSessions])
-
-  /** 更新最后一条 assistant 消息 */
-  const patchAssistant = (fn: (m: Extract<Msg, { role: 'assistant' }>) => Msg) =>
-    setMsgs((all) => {
-      const next = [...all]
-      for (let i = next.length - 1; i >= 0; i--)
-        if (next[i].role === 'assistant') {
-          next[i] = fn(next[i] as Extract<Msg, { role: 'assistant' }>)
-          break
-        }
-      return next
-    })
-
-  /** 更新最后一条 assistant 的最后一个 turn（不存在则创建） */
-  const patchTurn = (fn: (t: TurnView) => TurnView) =>
-    patchAssistant((m) => {
-      const turns = [...m.turns]
-      if (!turns.length) turns.push({ thinking: '', tools: [], text: '' })
-      turns[turns.length - 1] = fn(turns[turns.length - 1])
-      return { ...m, turns }
-    })
-
-  const runStream = async (
-    label: string,
-    run: (onEvent: (e: AgentStreamEvent) => void, signal: AbortSignal) => Promise<void>,
-    assistantSeed?: Partial<Extract<Msg, { role: 'assistant' }>>,
-  ) => {
-    setMsgs((m) => [
-      ...m,
-      { role: 'user', text: label, ts: Date.now() },
-      { role: 'assistant', turns: [], ts: Date.now(), ...assistantSeed },
-    ])
-    setBusy(true)
-    const ctl = new AbortController()
-    abortRef.current = ctl
-    const onEvent = (e: AgentStreamEvent) => {
-      if (e.type === 'turnstart')
-        patchAssistant((m) => ({ ...m, turns: [...m.turns, { thinking: '', tools: [], text: '' }] }))
-      else if (e.type === 'delta') patchTurn((t) => ({ ...t, text: t.text + e.text }))
-      else if (e.type === 'thinking') patchTurn((t) => ({ ...t, thinking: t.thinking + e.text }))
-      else if (e.type === 'session') {
-        setActiveId(e.sessionId)
-        setSessionName(e.name)
-        refreshSessions()
-      } else if (e.type === 'usage')
-        setUsage({
-          cost: e.cost,
-          tokens: e.contextUsage && typeof e.contextUsage.tokens === 'number' ? e.contextUsage.tokens : null,
-        })
-      else if (e.type === 'turn') {
-        patchTurn((t) => ({ ...t, model: e.model ?? t.model, usage: e.usage, cost: e.cost }))
-        if (e.model) setLastModelName(e.model)
-      }
-      else if (e.type === 'tool') {
-        if (e.state === 'start')
-          patchTurn((t) => ({
-            ...t,
-            tools: [...t.tools, { id: e.id ?? null, name: e.name, args: e.args ?? null, running: true }],
-          }))
-        else
-          patchTurn((t) => {
-            const tools = [...t.tools]
-            let idx = tools.findIndex((x) => x.id != null && x.id === e.id)
-            if (idx < 0) for (let k = tools.length - 1; k >= 0; k--) if (tools[k].running) { idx = k; break }
-            if (idx >= 0)
-              tools[idx] = {
-                ...tools[idx],
-                running: false,
-                isError: e.isError,
-                durationMs: e.durationMs ?? null,
-                result: e.result ?? null,
-              }
-            return { ...t, tools }
-          })
-      } else if (e.type === 'diffs')
-        setMsgs((m) => [...m, { role: 'diffs', sessionId: e.sessionId, mode: e.mode, files: e.files, state: 'pending' }])
-      else if (e.type === 'error') patchAssistant((m) => ({ ...m, error: e.message }))
-    }
-    try {
-      await run(onEvent, ctl.signal)
-      refreshSessions()
-    } catch (err) {
-      if (!ctl.signal.aborted) patchAssistant((m) => ({ ...m, error: String((err as Error)?.message || err) }))
-    } finally {
-      abortRef.current = null
-      setBusy(false)
-    }
-  }
 
   const send = () => {
     const q = input.trim()
@@ -216,14 +192,14 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     if (nameM) {
       setInput('')
       if (!activeId) {
-        setMsgs((m) => [...m, { role: 'assistant', turns: [{ thinking: '', tools: [], text: '当前没有活动会话，先发起对话再命名。' }], ts: Date.now() }])
+        appendAssistantNote('当前没有活动会话，先发起对话再命名。')
         return
       }
       void doRename(activeId, nameM[1].trim())
       return
     }
     setInput('')
-    void runStream(
+    void storeRunStream(
       q,
       (onEvent, signal) =>
         chat(
@@ -251,43 +227,28 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   /** 输入区内置命令：/new /compact /clear */
   const handleCommand = (cmd: 'new' | 'compact' | 'clear') => {
     if (cmd === 'new') newSession()
-    else if (cmd === 'clear') setMsgs([])
+    else if (cmd === 'clear') clearMsgs()
     else if (cmd === 'compact') {
       if (!activeId) {
-        setMsgs((m) => [...m, { role: 'assistant', turns: [{ thinking: '', tools: [], text: '当前没有活动会话，无需压缩。' }], ts: Date.now() }])
+        appendAssistantNote('当前没有活动会话，无需压缩。')
         return
       }
       compactSession(activeId)
         .then((r) =>
-          setMsgs((m) => [
-            ...m,
-            {
-              role: 'assistant',
-              turns: [
-                {
-                  thinking: '',
-                  tools: [],
-                  text: `上下文已压缩${r.tokensBefore != null ? `（压缩前约 ${r.tokensBefore.toLocaleString('en-US')} tokens）` : ''}。`,
-                },
-              ],
-              ts: Date.now(),
-            },
-          ]),
+          appendAssistantNote(`上下文已压缩${r.tokensBefore != null ? `（压缩前约 ${r.tokensBefore.toLocaleString('en-US')} tokens）` : ''}。`),
         )
-        .catch((e) =>
-          setMsgs((m) => [...m, { role: 'assistant', turns: [{ thinking: '', tools: [], text: `压缩失败：${String((e as Error)?.message || e)}` }], ts: Date.now() }]),
-        )
+        .catch((e) => appendAssistantNote(`压缩失败：${String((e as Error)?.message || e)}`))
     }
   }
 
   const startTask = useCallback(
     (task: AgentTask) => {
       if (task.type === 'ingest')
-        void runStream(`摄取原始资料：raw/${task.rawFile}`, (onEvent, signal) =>
+        void storeRunStream(`摄取原始资料：raw/${task.rawFile}`, (onEvent, signal) =>
           runTask({ mode: 'ingest', rawFile: task.rawFile }, onEvent, signal),
         )
       else
-        void runStream(`修复 ${task.issues.length} 项健康问题`, (onEvent, signal) =>
+        void storeRunStream(`修复 ${task.issues.length} 项健康问题`, (onEvent, signal) =>
           runTask({ mode: 'lint', issues: task.issues }, onEvent, signal),
         )
     },
@@ -307,12 +268,9 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
 
   const switchSession = async (id: string) => {
     if (busy || id === activeId) return
-    setActiveId(id)
-    setUsage(null)
     try {
       const r = await getSessionMessages(id)
-      setSessionName(r.name)
-      setMsgs(
+      loadSession(
         r.messages.map((m) =>
           m.role === 'user'
             ? { role: 'user' as const, text: m.text ?? '', ts: m.ts ? new Date(m.ts).getTime() : Date.now() }
@@ -322,24 +280,36 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
                 ts: m.ts ? new Date(m.ts).getTime() : Date.now(),
               },
         ),
+        id,
+        r.name,
+      )
+      // 切换会话时同步该会话的实时用量（活跃缓存会话有值，冷会话为 null→占位）
+      const cu = r.usage?.contextUsage
+      setStoreUsage(
+        r.usage
+          ? {
+              cost: r.usage.cost,
+              tokens: cu && typeof cu.tokens === 'number' ? cu.tokens : null,
+              contextWindow: cu && typeof cu.contextWindow === 'number' ? cu.contextWindow : null,
+              percent: cu && typeof cu.percent === 'number' ? cu.percent : null,
+            }
+          : null,
       )
     } catch (e) {
-      setMsgs([{ role: 'assistant', turns: [], ts: Date.now(), error: String((e as Error)?.message || e) }])
+      loadSession([{ role: 'assistant', turns: [], ts: Date.now(), error: String((e as Error)?.message || e) }], id, null)
+      setStoreUsage(null)
     }
   }
 
   const newSession = () => {
     if (busy) return
-    setActiveId(null)
-    setSessionName(null)
-    setMsgs([])
-    setUsage(null)
+    resetForNewSession()
   }
 
   const doRename = async (id: string, name: string) => {
     try {
       await renameSession(id, name)
-      if (id === activeId) setSessionName(name)
+      if (id === activeId) setStoreSessionName(name)
       refreshSessions()
     } catch {
       /* 忽略 */
@@ -356,29 +326,58 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     }
   }
 
-  const actOnDiffs = async (i: number, action: 'apply' | 'discard') => {
-    const m = msgs[i]
-    if (m.role !== 'diffs' || m.state !== 'pending') return
-    setMsgs((all) =>
-      all.map((x, j) => (j === i && x.role === 'diffs' ? { ...x, note: action === 'apply' ? '正在应用到知识库…' : '正在丢弃…' } : x)),
-    )
-    try {
-      if (action === 'apply') {
-        const r = await applyStaging(m.sessionId)
-        setMsgs((all) =>
-          all.map((x, j) =>
-            j === i && x.role === 'diffs'
-              ? { ...x, state: 'applied', note: `已应用 ${r.changed.length} 个文件${r.synced ? ' · 快照已同步，浏览器即将刷新数据' : ' · 快照同步失败，请手动 npm run sync'}` }
-              : x,
-          ),
-        )
-      } else {
-        await discardStaging(m.sessionId)
-        setMsgs((all) => all.map((x, j) => (j === i && x.role === 'diffs' ? { ...x, state: 'discarded', note: '已丢弃，知识库未发生任何变化' } : x)))
-      }
-    } catch (e) {
-      setMsgs((all) => all.map((x, j) => (j === i && x.role === 'diffs' ? { ...x, note: `操作失败：${String((e as Error)?.message || e)}` } : x)))
+  /** 打开右栏审查面板（手动打开不受 dismissed 限制） */
+  const openReview = useCallback((id: string) => {
+    undismissReview(id)
+    setReviewSessionId(id)
+    setRightTab('review')
+    setRightOpen(true)
+  }, [])
+
+  // diffs 事件 → 自动打开审查（跳过用户主动关闭过的）；卸载即解除监听
+  useEffect(() => addDiffsListener((id) => {
+    if (!isReviewDismissed(id)) openReview(id)
+  }), [openReview])
+
+  // App 层 toast 点击 → 打开指定审查会话
+  useEffect(() => {
+    if (reviewRequest) {
+      openReview(reviewRequest)
+      onReviewRequestConsumed()
     }
+  }, [reviewRequest, openReview, onReviewRequestConsumed])
+
+  /** 审查面板应用/丢弃后：更新聊天指针卡状态、解除 dismissed、收起审查并刷新待审 */
+  const handleReviewApplied = (sessionId: string) => {
+    setDiffsState(sessionId, 'applied', '已应用，快照已同步')
+    undismissReview(sessionId)
+    setReviewSessionId(null)
+    refreshSessions()
+    refreshPending()
+  }
+  const handleReviewDiscarded = (sessionId: string) => {
+    setDiffsState(sessionId, 'discarded', '已丢弃，知识库未发生任何变化')
+    undismissReview(sessionId)
+    setReviewSessionId(null)
+    refreshPending()
+  }
+
+  /** 右栏左缘拖拽调宽 */
+  const onRightDragStart = (e: ReactMouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = rightW
+    const move = (ev: MouseEvent) => setRightW(Math.min(760, Math.max(340, startW + (startX - ev.clientX))))
+    const up = () => {
+      document.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseup', up)
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+    }
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'col-resize'
+    document.addEventListener('mousemove', move)
+    document.addEventListener('mouseup', up)
   }
 
   const saveAnswer = async (i: number) => {
@@ -389,21 +388,14 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     const title = (m.question || '知识库问答').slice(0, 40)
     try {
       const r = await saveOutput({ title, content: fullText, question: m.question })
-      setMsgs((all) => all.map((x, j) => (j === i && x.role === 'assistant' ? { ...x, savedAs: r.path } : x)))
+      patchMsg(i, { savedAs: r.path })
     } catch (e) {
-      setMsgs((all) => all.map((x, j) => (j === i && x.role === 'assistant' ? { ...x, saveError: String((e as Error)?.message || e) } : x)))
+      patchMsg(i, { saveError: String((e as Error)?.message || e) })
     }
   }
 
-  /** 从知识库面板恢复暂存待审会话：拉完整 diff 插入审核卡 */
-  const showStaging = async (id: string, mode: string) => {
-    try {
-      const r = await getStagingDetail(id)
-      setMsgs((m) => [...m, { role: 'diffs', sessionId: r.sessionId, mode, files: r.files, state: 'pending' }])
-    } catch (e) {
-      setMsgs((m) => [...m, { role: 'assistant', turns: [], ts: Date.now(), error: `恢复暂存会话失败：${String((e as Error)?.message || e)}` }])
-    }
-  }
+  /** 从知识库面板打开暂存待审会话的审查面板 */
+  const showStaging = (id: string, _mode: string) => openReview(id)
 
   const offline = online === false
   // pi-web 同款：新会话且无消息时输入区垂直居中，有内容后回到底端
@@ -414,7 +406,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
       value={input}
       onChange={setInput}
       onSend={send}
-      onStop={() => abortRef.current?.abort()}
+      onStop={stopStream}
       busy={busy}
       disabled={offline}
       modelDisplay={model?.id ?? lastModelName ?? defaultModelName ?? '默认模型'}
@@ -429,10 +421,11 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
 
   return (
     <div className="flex h-full">
-      {/* 左侧栏：全高到顶（与阅读模式 Sidebar 同结构：品牌区在最顶） */}
+      {/* 左侧栏：全高到顶（与阅读模式 Sidebar 同结构：品牌区在最顶）；可收拢 */}
+      {leftOpen && (
       <aside className="flex w-side shrink-0 flex-col border-r border-line bg-ink-soft">
         <Brand />
-        <div className="flex shrink-0 gap-1 border-b border-line px-2 py-1.5">
+        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">
           {TABS.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -462,7 +455,15 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
           ) : leftTab === 'knowledge' ? (
             <KnowledgePanel onStartTask={startTask} onShowStaging={showStaging} busy={busy} online={online} />
           ) : leftTab === 'files' ? (
-            <FileExplorer onPreview={setPreviewPath} activePath={previewPath} online={online} />
+            <FileExplorer
+              onPreview={(p) => {
+                setPreviewPath(p)
+                setRightTab('preview')
+                setRightOpen(true)
+              }}
+              activePath={previewPath}
+              online={online}
+            />
           ) : (
             <SettingsPanel
               model={model}
@@ -475,13 +476,29 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
           )}
         </div>
       </aside>
+      )}
 
       {/* 右列：TopBar + 主体 */}
       <div className="flex min-w-0 flex-1 flex-col">
       {/* TopBar */}
-      <header className="flex h-[46px] shrink-0 items-center gap-3 border-b border-line bg-ink-soft px-3">
-        {/* 模式切换（与阅读模式顶栏同款控件） */}
+      <header className="flex h-[46px] shrink-0 items-center gap-2 border-b border-line bg-ink-soft px-3">
+        {/* 与阅读模式顶栏同序：知识库切换 → 模式切换 */}
+        <VaultSwitcher vaults={vaults} activeVault={activeVault} onSwitch={onSwitchVault} onNew={onNewVault} />
         <ModeSwitch mode="ai" onSwitch={onSwitchToWiki} />
+
+        {/* 左栏展开/收拢开关 */}
+        <button
+          onClick={() => setLeftOpen((v) => !v)}
+          aria-label={leftOpen ? '收起左栏' : '展开左栏'}
+          title={leftOpen ? '收起左栏' : '展开左栏'}
+          className={`rounded-md border p-1.5 transition-colors ${
+            leftOpen
+              ? 'border-accent/60 bg-accent/10 text-accent'
+              : 'border-line bg-surface text-fg-secondary hover:border-accent/50 hover:text-accent'
+          }`}
+        >
+          <PanelLeft size={14} strokeWidth={1.9} />
+        </button>
 
         {/* 当前会话 */}
         <div className="min-w-0 flex-1 truncate text-[12.5px] text-fg-muted">
@@ -489,20 +506,31 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
           {activeId && <span className="ml-2 font-mono text-[10.5px] opacity-50">{activeId.slice(0, 8)}</span>}
         </div>
 
-        <div className="flex items-center gap-3 text-[11px] text-fg-muted">
-          <span
-            className={`flex items-center gap-1.5 ${offline ? 'text-cat-concept' : ''}`}
-            title={offline ? 'agent-server 离线' : 'pi 智能体服务在线'}
+        <div className="flex items-center gap-2.5 text-[11px] text-fg-muted">
+          <button
+            onClick={() => setIndexMode((m) => (m === 'off' ? 'mini' : 'off'))}
+            aria-label="对话索引"
+            title="对话索引：minimap / 展开列表"
+            className={`rounded-md border p-1.5 transition-colors ${
+              indexMode !== 'off'
+                ? 'border-accent/60 bg-accent/10 text-accent'
+                : 'border-line bg-surface text-fg-secondary hover:border-accent/50 hover:text-accent'
+            }`}
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${online === null ? 'bg-fg-muted/40' : offline ? 'bg-cat-concept' : 'bg-cat-entity'}`} />
-            {offline ? '离线' : '在线'}
-          </span>
-          {usage && (
-            <span className="font-mono tabular-nums" title="当前会话累计成本 / 上下文 token 估算">
-              ${usage.cost.toFixed(4)}
-              {usage.tokens != null && <span className="ml-1.5 opacity-70">{(usage.tokens / 1000).toFixed(1)}k tok</span>}
-            </span>
-          )}
+            <ListOrdered size={14} strokeWidth={1.9} />
+          </button>
+          <button
+            onClick={() => setRightOpen((v) => !v)}
+            aria-label={rightOpen ? '收起右栏' : '展开右栏'}
+            title={rightOpen ? '收起右栏（文档/审查）' : '展开右栏（文档/审查）'}
+            className={`rounded-md border p-1.5 transition-colors ${
+              rightOpen
+                ? 'border-accent/60 bg-accent/10 text-accent'
+                : 'border-line bg-surface text-fg-secondary hover:border-accent/50 hover:text-accent'
+            }`}
+          >
+            <PanelRight size={14} strokeWidth={1.9} />
+          </button>
           <ChatSettings value={chatCfg} onChange={updateChatCfg} />
           <button
             onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
@@ -512,15 +540,28 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
           >
             {theme === 'dark' ? <Sun size={14} strokeWidth={1.9} /> : <Moon size={14} strokeWidth={1.9} />}
           </button>
+          <AgentInfo usage={usage} />
+          <span
+            className={`flex items-center gap-1.5 ${offline ? 'text-cat-concept' : ''}`}
+            title={offline ? 'agent-server 离线' : 'pi 智能体服务在线'}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${online === null ? 'bg-fg-muted/40' : offline ? 'bg-cat-concept' : 'bg-cat-entity'}`} />
+            {offline ? '离线' : '在线'}
+          </span>
         </div>
       </header>
 
         <div className="flex min-h-0 flex-1">
         {/* 中央：聊天主窗口（--chat-w / --chat-pad-y 由排版设置下发） */}
         <main
-          className="flex min-w-0 flex-1 flex-col"
+          className="relative flex min-w-0 flex-1"
           style={{ '--chat-w': `${chatCfg.pct}%`, '--chat-pad-y': CHAT_PADY[chatCfg.padY] } as CSSProperties}
         >
+          {/* 对话索引（pi-map 风格）：置于聊天区左侧，mini=收缩 minimap / full=展开侧栏 */}
+          {indexMode !== 'off' && !offline && (
+            <SessionIndex msgs={msgs} mode={indexMode} onMode={setIndexMode} onClose={() => setIndexMode('off')} />
+          )}
+          <div className="flex min-w-0 flex-1 flex-col">
           {offline ? (
             <div className="flex flex-1 items-center justify-center p-8">
               <div className="max-w-sm rounded-card border border-line bg-surface p-5 text-[12.5px] leading-6 text-fg-secondary">
@@ -528,7 +569,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
                   <Bot size={16} className="text-cat-concept" />
                   agent-server 未启动
                 </div>
-                <p className="text-fg-muted">工作台需要本地运行 pi 智能体服务（所有写入经 diff 审核门）。在项目根目录执行：</p>
+                <p className="text-fg-muted">工作模式需要本地运行 pi 智能体服务（所有写入经 diff 审核门）。在项目根目录执行：</p>
                 <pre className="mt-2 overflow-x-auto rounded-md border border-line bg-ink-soft p-2.5 font-mono text-[11.5px] text-accent-glow">
                   {'cd agent-server\nnpm install   # 首次\nnpm start'}
                 </pre>
@@ -571,16 +612,70 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
                 busy={busy}
                 onLink={onOpenWikiPage}
                 onSave={saveAnswer}
-                onApply={(i) => actOnDiffs(i, 'apply')}
-                onDiscard={(i) => actOnDiffs(i, 'discard')}
+                onOpenReview={openReview}
               />
               {chatInput}
             </>
           )}
+          </div>
         </main>
 
-        {/* 右侧预览面板（文件浏览打开） */}
-        {previewPath && !offline && <PreviewPanel path={previewPath} onClose={() => setPreviewPath(null)} />}
+        {/* 右栏：焦点对象工作区 [文档 | 审查]，tab 永远可点 + 空态；TopBar 开关控制整体 */}
+        {rightOpen && !offline && (
+          <aside className="relative flex shrink-0 flex-col border-l border-line bg-ink" style={{ width: rightW }}>
+            <div
+              onMouseDown={onRightDragStart}
+              title="拖拽调整宽度"
+              className="group absolute left-[-3px] top-0 z-10 flex h-full w-[7px] cursor-col-resize justify-center"
+            >
+              {/* 细可见线（2px）+ 宽隐形热区（7px）：线细但颜色醒目 */}
+              <div className="h-full w-[2px] bg-accent/40 transition-colors group-hover:bg-accent group-active:bg-accent" />
+            </div>
+            <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">
+              <button
+                onClick={() => setRightTab('preview')}
+                className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1 text-[11.5px] transition-colors ${
+                  rightTab === 'preview' ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
+                }`}
+              >
+                文档
+              </button>
+              <button
+                onClick={() => {
+                  setRightTab('review')
+                  if (!reviewSessionId) {
+                    const t = stagingPending.find((s) => !isReviewDismissed(s.id)) ?? stagingPending[0]
+                    if (t) setReviewSessionId(t.id)
+                  }
+                }}
+                className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1 text-[11.5px] transition-colors ${
+                  rightTab === 'review' ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
+                }`}
+              >
+                审查
+                {stagingPending.length > 0 && (
+                  <span className="rounded-full bg-accent/20 px-1.5 font-mono text-[10px] text-accent">{stagingPending.length}</span>
+                )}
+              </button>
+            </div>
+            {rightTab === 'review' ? (
+              <ReviewPanel
+                sessionId={reviewSessionId}
+                sessions={stagingPending}
+                onSelectSession={setReviewSessionId}
+                onClose={() => {
+                  if (reviewSessionId) dismissReview(reviewSessionId)
+                  setReviewSessionId(null)
+                }}
+                onApplied={handleReviewApplied}
+                onDiscarded={handleReviewDiscarded}
+                onPartial={refreshPending}
+              />
+            ) : (
+              <PreviewPanel path={previewPath} onClose={() => setPreviewPath(null)} />
+            )}
+          </aside>
+        )}
         </div>
       </div>
     </div>

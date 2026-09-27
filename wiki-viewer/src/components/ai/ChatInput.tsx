@@ -101,7 +101,7 @@ export default function ChatInput({
       const all: CmdItem[] = [
         ...BUILTIN_CMDS,
         ...skills.map((s) => ({
-          name: `/${s.name}`,
+          name: `/skill:${s.name}`,
           desc: s.description.replace(/\s+/g, ' ').slice(0, 64),
           kind: 'skill' as const,
           icon: Puzzle,
@@ -291,9 +291,9 @@ export default function ChatInput({
           </div>
         )}
 
-        {/* 一体化输入容器 */}
+        {/* 一体化输入容器：items-center 保证单行时文字与发送按钮垂直居中对称 */}
         <div
-          className={`flex items-end gap-2 rounded-xl border bg-surface px-4 py-2.5 transition-colors ${
+          className={`flex items-center gap-2 rounded-xl border bg-surface px-4 py-2.5 transition-colors ${
             disabled
               ? 'border-line opacity-60'
               : 'border-line focus-within:border-accent/50 focus-within:ring-2 focus-within:ring-accent/10'

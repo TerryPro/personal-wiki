@@ -1,7 +1,12 @@
-/** 顶/侧栏品牌区：两种模式左栏共用（logo + 标题 + 副标题） */
-export default function Brand() {
+/** 顶/侧栏品牌区：两种模式左栏共用（logo + 标题 + 副标题）；传 onClick 时可点击回首页 */
+export default function Brand({ onClick }: { onClick?: () => void }) {
   return (
-    <div className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-[13px]">
+    <div
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      title={onClick ? '回到首页' : undefined}
+      className={`flex h-[46px] shrink-0 items-center gap-3 border-b border-line px-4 ${onClick ? 'cursor-pointer transition-colors hover:bg-surface-raised' : ''}`}
+    >
       <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
         <circle cx="13" cy="6" r="2.6" fill="hsl(42 52% 62%)" />
         <circle cx="5.5" cy="18" r="2.2" fill="hsl(202 48% 60%)" />

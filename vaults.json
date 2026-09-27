@@ -1,0 +1,20 @@
+[
+  {
+    "id": "llmwiki",
+    "name": "LLM Wiki",
+    "path": "llmwiki",
+    "description": "AI / LLM 研究知识库"
+  },
+  {
+    "id": "pi-coding-agent",
+    "name": "Pi Coding Agent",
+    "path": "pi-coding-agent",
+    "description": "pi的相关知识库"
+  },
+  {
+    "id": "shiji",
+    "name": "史记",
+    "path": "shiji",
+    "description": "把史记这套书变成wiki"
+  }
+]

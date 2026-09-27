@@ -14,7 +14,7 @@ interface Props {
 }
 
 const TOOL_MODES: [string, string][] = [
-  ['query', '问答 / 工作台'],
+  ['query', '问答 / 工作'],
   ['ingest', '摄取'],
   ['lint', '修复'],
 ]

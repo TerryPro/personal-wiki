@@ -31,12 +31,22 @@ export interface BrokenLink {
 export interface WikiData {
   syncedAt: string
   vault: string
+  /** 注册表中的 vault 唯一标识（多知识库切换用） */
+  vaultId: string
   pages: WikiPage[]
   brokenLinks?: BrokenLink[]
   /** raw/ 消化进度汇总 */
   digestion?: { total: number; digested: number; undigestedFiles: string[] }
   /** output/ 中非 Markdown 附件条目 */
   outputAttachments?: { name: string; size: number; mtime: string }[]
+}
+
+/** vaults.json 注册表条目 */
+export interface VaultEntry {
+  id: string
+  name: string
+  path: string
+  description?: string
 }
 
 /** 正文大纲条目（h2–h4），id 与渲染 DOM 中的标题一一对应 */

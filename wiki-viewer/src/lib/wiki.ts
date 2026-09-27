@@ -1,35 +1,110 @@
-import raw from '@/generated/wiki-data.json'
 import { Boxes, Compass, FileArchive, FileText, Lightbulb, Package, Sparkles, type LucideIcon } from 'lucide-react'
-import type { BrokenLink, Category, OutlineItem, WikiData, WikiPage } from '@/types'
+import type { BrokenLink, Category, OutlineItem, VaultEntry, WikiData, WikiPage } from '@/types'
 
-export const data = raw as unknown as WikiData
-export const pages = data.pages
+/* ————— 运行时数据加载（fetch public/data/，dev/prod 刷新即最新） ————— */
+
+/** 数据版本：每次 loadVault 成功 +1；订阅者据此重渲染（解决快照不实时） */
+let dataVersion = 0
+const dataListeners = new Set<() => void>()
+export const getDataVersion = () => dataVersion
+export function subscribeData(fn: () => void): () => void {
+  dataListeners.add(fn)
+  return () => {
+    dataListeners.delete(fn)
+  }
+}
+function notifyData() {
+  dataVersion++
+  dataListeners.forEach((fn) => fn())
+}
+
+const EMPTY_DATA: WikiData = {
+  syncedAt: '',
+  vault: '',
+  vaultId: '',
+  pages: [],
+  brokenLinks: [],
+  digestion: { total: 0, digested: 0, undigestedFiles: [] },
+  outputAttachments: [],
+}
+
+/** 当前活跃 vault 的数据（ES module live binding：导入方每次读取都拿最新值） */
+export let data: WikiData = EMPTY_DATA
+export let pages: WikiPage[] = []
 /** 断链清单（构建期计算，已按引用数降序） */
-export const brokenLinks = data.brokenLinks ?? []
+export let brokenLinks: BrokenLink[] = []
 /** raw/ 消化进度（构建期计算） */
-export const digestion = data.digestion ?? { total: 0, digested: 0, undigestedFiles: [] }
+export let digestion: { total: number; digested: number; undigestedFiles: string[] } = { total: 0, digested: 0, undigestedFiles: [] }
+
+/* ————— 索引（vault 切换时重建） ————— */
 
 /** 参与双链网络解析的分类；raw/output 只可浏览，不可被 [[链接]] 解析命中 */
 const RESOLVABLE = new Set<Category>(['source', 'entity', 'concept', 'synthesis', 'meta'])
 
-/** 标题/slug/别名 → 页面 索引：兼容 [[标题]]、[[目录/文件名|标题]] 与 frontmatter aliases 三种写法 */
+/** 标题/slug/别名 → 页面 索引 */
 const byTitle = new Map<string, WikiPage>()
 const bySlug = new Map<string, WikiPage>()
 const byAlias = new Map<string, WikiPage>()
-for (const p of pages) {
-  if (!RESOLVABLE.has(p.category)) continue
-  byTitle.set(p.title, p)
-  bySlug.set(p.slug, p)
-  for (const a of p.aliases ?? []) if (!byAlias.has(a)) byAlias.set(a, p)
+const backlinkCache = new Map<string, WikiPage[]>()
+const rawToSources = new Map<string, WikiPage[]>()
+let tagMap: Map<string, WikiPage[]> | null = null
+let healthCache: HealthReport | null = null
+
+function rebuildIndexes() {
+  byTitle.clear()
+  bySlug.clear()
+  byAlias.clear()
+  backlinkCache.clear()
+  rawToSources.clear()
+  tagMap = null
+  healthCache = null
+
+  for (const p of pages) {
+    if (!RESOLVABLE.has(p.category)) continue
+    byTitle.set(p.title, p)
+    bySlug.set(p.slug, p)
+    for (const a of p.aliases ?? []) if (!byAlias.has(a)) byAlias.set(a, p)
+  }
+  for (const p of pages) {
+    if (p.category === 'source')
+      for (const s of p.sources) {
+        if (!rawToSources.has(s)) rawToSources.set(s, [])
+        rawToSources.get(s)!.push(p)
+      }
+  }
 }
+
+/** 加载指定 vault 的数据快照；成功后 data/pages/brokenLinks/digestion 全部更新并通知订阅者 */
+export async function loadVault(id: string): Promise<void> {
+  const res = await fetch(`/data/vaults/${encodeURIComponent(id)}.json`)
+  if (!res.ok) throw new Error(`vault not found: ${id}`)
+  data = (await res.json()) as WikiData
+  pages = data.pages
+  brokenLinks = data.brokenLinks ?? []
+  digestion = data.digestion ?? { total: 0, digested: 0, undigestedFiles: [] }
+  rebuildIndexes()
+  notifyData()
+}
+
+/** 读取 vault 注册表（public/data/vault-index.json，由 sync-data.mjs 生成） */
+export async function loadVaultIndex(): Promise<VaultEntry[]> {
+  try {
+    const res = await fetch('/data/vault-index.json')
+    if (!res.ok) return []
+    return (await res.json()) as VaultEntry[]
+  } catch {
+    return []
+  }
+}
+
+/* ————— 查询 API ————— */
 
 export const resolveTitle = (t: string) =>
   byTitle.get(t.trim()) ?? bySlug.get(t.trim()) ?? byAlias.get(t.trim().toLowerCase()) ?? null
 
 export const getPage = (id: string) => pages.find((p) => p.id === id) ?? null
 
-  /** 反链：谁 [[链接]] 了我（标题或 slug 命中均算） */
-const backlinkCache = new Map<string, WikiPage[]>()
+/** 反链：谁 [[链接]] 了我（标题或 slug 命中均算） */
 export function getBacklinks(page: WikiPage): WikiPage[] {
   let r = backlinkCache.get(page.id)
   if (!r) {
@@ -92,7 +167,7 @@ export function search(q: string): SearchHit[] {
   })
 }
 
-/** 图谱边：仅限 wiki 知识页（排除 meta 导航页与 raw/output 资产页）；解析成功的 target→target */
+/** 图谱边：仅限 wiki 知识页（排除 meta 导航页与 raw/output 资产页） */
 export function buildEdges(): { from: string; to: string }[] {
   const seen = new Set<string>()
   const edges: { from: string; to: string }[] = []
@@ -110,7 +185,7 @@ export function buildEdges(): { from: string; to: string }[] {
 }
 
 /* ————— 标签视图 ————— */
-let tagMap: Map<string, WikiPage[]> | null = null
+
 function tagsMap(): Map<string, WikiPage[]> {
   if (!tagMap) {
     tagMap = new Map()
@@ -176,13 +251,6 @@ export function applyOutlineIds(root: HTMLElement, outline: OutlineItem[]) {
 }
 
 /* ————— 来源追溯：raw 文件 → 哪些 source 页引用了它 ————— */
-const rawToSources = new Map<string, WikiPage[]>()
-for (const p of pages)
-  if (p.category === 'source')
-    for (const s of p.sources) {
-      if (!rawToSources.has(s)) rawToSources.set(s, [])
-      rawToSources.get(s)!.push(p)
-    }
 
 /** raw/ 文件名 → 消化它的 source 页列表 */
 export const sourcePagesForRaw = (file: string) => rawToSources.get(file) ?? []
@@ -220,7 +288,6 @@ export interface HealthReport {
   avgDegree: number
 }
 
-let healthCache: HealthReport | null = null
 export function healthReport(): HealthReport {
   if (healthCache) return healthCache
   const knowables = pages.filter((p) => p.category !== 'meta' && p.category !== 'raw' && p.category !== 'output')

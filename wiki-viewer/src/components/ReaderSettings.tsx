@@ -27,7 +27,7 @@ function Seg({ active, children, onClick, title }: { active: boolean; children: 
       onClick={onClick}
       title={title}
       className={`flex-1 rounded-md py-1 text-[12px] font-medium transition-all ${
-        active ? 'bg-surface-raised text-fg shadow-panel' : 'text-fg-muted hover:text-fg-secondary'
+        active ? 'bg-surface-raised text-fg' : 'text-fg-muted hover:text-fg-secondary'
       }`}
     >
       {children}

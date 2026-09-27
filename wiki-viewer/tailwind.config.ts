@@ -31,6 +31,8 @@ export default {
           raw: 'hsl(var(--cat-raw) / <alpha-value>)',
           output: 'hsl(var(--cat-output) / <alpha-value>)',
         },
+        // 中间步骤卡片的浅红（复用 danger 红相，双主题适配）
+        danger: 'hsl(var(--co-danger) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['"Inter Variable"', 'Inter', 'system-ui', '"PingFang SC"', '"Microsoft YaHei"', 'sans-serif'],

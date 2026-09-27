@@ -53,7 +53,11 @@ export function step(nodes: FNode[], edges: FEdge[], alpha: number, pinned?: FNo
 
   const idx = new Map(nodes.map((n, i) => [n.page.id, i]))
   for (const e of edges) {
-    const a = nodes[idx.get(e.from)!], b = nodes[idx.get(e.to)!]
+    const ia = idx.get(e.from)
+    const ib = idx.get(e.to)
+    // 防御：边端点不在节点集（如跨 vault 残留/过滤差异）时跳过，避免 nodes[undefined] 崩溃
+    if (ia == null || ib == null) continue
+    const a = nodes[ia], b = nodes[ib]
     const dx = b.x - a.x, dy = b.y - a.y
     const d = Math.max(1, Math.hypot(dx, dy))
     const f = ((d - 190) / d) * 0.02 * alpha * 6

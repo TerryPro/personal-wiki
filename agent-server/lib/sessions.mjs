@@ -1,4 +1,4 @@
-// sessions.mjs — 持久化会话缓存：AgentSession 按 sessionId 复用（30 分钟空闲自动 dispose），
+// sessions.mjs — 持久化会话缓存（多 vault 版本）：AgentSession 按 sessionId 复用（30 分钟空闲自动 dispose），
 // 会话文件由 SessionManager 持久化到 ~/.pi/agent/sessions/（与 pi CLI 的 pi -c / pi -r 互通）。
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -9,16 +9,36 @@ import {
   ModelRuntime,
   SessionManager,
   getAgentDir,
+  loadSkillsFromDir,
+  formatSkillsForPrompt,
 } from '@earendil-works/pi-coding-agent'
-import { VAULT, QUERY_GUIDE, INGEST_GUIDE, LINT_GUIDE } from './vault.mjs'
+import { QUERY_GUIDE, INGEST_GUIDE, LINT_GUIDE } from './vault.mjs'
+import { getVaultPath, getDefaultVaultId } from './registry.mjs'
 import { createSession, ensureStagedBase, stagedPath, toVaultRel } from './staging.mjs'
 
 const IDLE_MS = 30 * 60 * 1000
 
-/** sessionId → { sessionId, mode, session, sm, stagingSess, modelKey, lastContextPage, busy, lastActive } */
+/** sessionId → { sessionId, vaultId, mode, session, sm, stagingSess, modelKey, lastContextPage, busy, lastActive } */
 const cache = new Map()
 
 const GUIDES = { query: QUERY_GUIDE, ingest: INGEST_GUIDE, lint: LINT_GUIDE }
+
+/** 斜杠技能调用说明：用户消息以 /skill:<name>（或兼容的 /<name>）开头时，按系统提示技能索引读取 SKILL.md 执行 */
+const SKILL_INVOCATION_NOTE = `## 斜杠技能（/skill:name）
+当用户消息以 /skill:<name> 开头（兼容裸 /<name>，后面可跟参数）时：该技能已在下方技能索引中列出。请用 read 工具读取其 SKILL.md 全文，并严格按其流程执行；斜杠命令后的文本作为参数。不要中途停下等待确认——写入类技能一次性完成，由审核门在事后交由人工审阅。`
+
+/** 读取项目级技能索引并格式化为系统提示片段（pi 原生 Agent-Skills 方式，不内联全文） */
+function buildSkillsPrompt(vaultPath) {
+  try {
+    const dir = join(vaultPath, '.pi', 'skills')
+    if (!existsSync(dir)) return ''
+    const { skills } = loadSkillsFromDir({ dir, source: 'project' })
+    if (!skills.length) return ''
+    return formatSkillsForPrompt(skills, 'read')
+  } catch {
+    return ''
+  }
+}
 
 /** SDK 基础工具目录（设置面板可开关的全集） */
 export const TOOL_CATALOG = [
@@ -85,12 +105,12 @@ export function getModelRuntime() {
  * 真实 vault 在人工审核通过前不被触碰；read 命中已暂存文件时也重定向。
  * holder: { current, get() } —— 任务模式预建暂存会话；query 模式首次写入时才懒创建。
  */
-function stagingExtension(holder) {
+function stagingExtension(holder, vaultPath) {
   return (pi) => {
     pi.on('tool_call', (event) => {
       const name = event.toolName
       if (name === 'write' || name === 'edit') {
-        const rel = toVaultRel(event.input?.path)
+        const rel = toVaultRel(vaultPath, event.input?.path)
         if (!rel) return { block: true, reason: '审核门：禁止写 vault 之外的路径' }
         if (!rel.startsWith('wiki/'))
           return { block: true, reason: `审核门：只允许写 wiki/ 目录（${rel} 被拒绝）。raw/ 不可变，output/ 请走专用保存接口` }
@@ -101,7 +121,7 @@ function stagingExtension(holder) {
         return undefined
       }
       if (name === 'read') {
-        const rel = toVaultRel(event.input?.path)
+        const rel = toVaultRel(vaultPath, event.input?.path)
         const sess = holder.current
         if (rel && sess?.files.has(rel)) event.input.path = stagedPath(sess, rel)
       }
@@ -130,9 +150,13 @@ function applyThinking(entry, level) {
 }
 
 /** 取得（或创建/恢复）指定模式的会话；mode 不匹配时重建（同一 JSONL 文件不可双实例打开） */
-export async function obtainSession({ sessionId = null, mode = 'query', stagingSess = null, model = null, thinkingLevel = null }) {
+export async function obtainSession({ sessionId = null, mode = 'query', stagingSess = null, model = null, thinkingLevel = null, vaultId = null }) {
+  const resolvedVaultId = vaultId || getDefaultVaultId()
+  const vaultPath = getVaultPath(resolvedVaultId)
+  if (!vaultPath) throw new Error(`vault not found: ${resolvedVaultId}`)
+
   const hit = sessionId ? cache.get(sessionId) : null
-  if (hit && !hit.busy && hit.mode === mode) {
+  if (hit && !hit.busy && hit.mode === mode && hit.vaultId === resolvedVaultId) {
     hit.lastActive = Date.now()
     await applyModel(hit, model)
     applyThinking(hit, thinkingLevel)
@@ -143,33 +167,37 @@ export async function obtainSession({ sessionId = null, mode = 'query', stagingS
   let sm
   let resolvedId = sessionId
   if (sessionId) {
-    const infos = await SessionManager.list(VAULT)
+    const infos = await SessionManager.list(vaultPath)
     const info = infos.find((s) => s.id === sessionId || s.id.startsWith(sessionId))
     if (!info) throw new Error(`会话不存在：${sessionId}`)
     sm = await SessionManager.open(info.path)
     resolvedId = info.id
   } else {
-    sm = await SessionManager.create(VAULT)
+    sm = await SessionManager.create(vaultPath)
     resolvedId = sm.getSessionId()
   }
 
-  const projectExtDir = join(VAULT, '.pi', 'extensions')
+  const projectExtDir = join(vaultPath, '.pi', 'extensions')
+  const skillsPrompt = buildSkillsPrompt(vaultPath)
   const loaderOptions = {
-    cwd: VAULT,
+    cwd: vaultPath,
     agentDir: getAgentDir(),
-    // 仅加载项目级 extensions（llmwiki/.pi/extensions），不加载 ~/.pi/agent 全局插件（与 skills 同策略）
+    // 仅加载项目级 extensions（<vault>/.pi/extensions），不加载 ~/.pi/agent 全局插件
     noExtensions: true,
     additionalExtensionPaths: existsSync(projectExtDir) ? [projectExtDir] : [],
-    appendSystemPromptOverride: (base) => [...base, GUIDES[mode]],
+    // 技能索引改由下方手动注入（仅项目级），关闭 loader 默认技能加载以避免全局技能混入/重复
+    noSkills: true,
+    appendSystemPromptOverride: (base) =>
+      [...base, GUIDES[mode], SKILL_INVOCATION_NOTE, skillsPrompt].filter(Boolean),
   }
   // 审核门：ingest/lint 用外部传入的暂存会话；query 按会话懒创建（首次写入才实际建）
   const stagingHolder = { current: stagingSess ?? null }
-  stagingHolder.get = () => (stagingHolder.current ??= createSession('chat', '会话改动'))
-  loaderOptions.extensionFactories = [stagingExtension(stagingHolder)]
+  stagingHolder.get = () => (stagingHolder.current ??= createSession(vaultPath, 'chat', '会话改动'))
+  loaderOptions.extensionFactories = [stagingExtension(stagingHolder, vaultPath)]
   const loader = new DefaultResourceLoader(loaderOptions)
   await loader.reload()
 
-  const opts = { cwd: VAULT, resourceLoader: loader, tools: TOOLS[mode], sessionManager: sm }
+  const opts = { cwd: vaultPath, resourceLoader: loader, tools: TOOLS[mode], sessionManager: sm }
   if (thinkingLevel) opts.thinkingLevel = thinkingLevel
   if (model?.provider && model?.id) {
     const rt = await getModelRuntime()
@@ -179,6 +207,8 @@ export async function obtainSession({ sessionId = null, mode = 'query', stagingS
   const { session } = await createAgentSession(opts)
   const entry = {
     sessionId: resolvedId,
+    vaultId: resolvedVaultId,
+    vaultPath,
     mode,
     session,
     sm,
@@ -204,6 +234,17 @@ export async function disposeEntry(sessionId) {
 
 export const cachedEntry = (sessionId) => cache.get(sessionId) || null
 
+/** 活跃缓存会话的实时用量（cost + SDK 上下文占用）；非活跃会话返回 null */
+export function sessionUsage(sessionId) {
+  const e = cache.get(sessionId)
+  if (!e) return null
+  let contextUsage = null
+  try {
+    contextUsage = e.session.getContextUsage?.() ?? null
+  } catch { /* ignore */ }
+  return { cost: e.session.state?.cost ?? 0, contextUsage }
+}
+
 // 空闲清理（server 生命周期内定时扫描；busy 会话不清）
 setInterval(() => {
   const now = Date.now()
@@ -212,8 +253,10 @@ setInterval(() => {
 
 /* ————— 会话列表 / 消息恢复 / 重命名 / 删除 ————— */
 
-export async function listSessions() {
-  const infos = await SessionManager.list(VAULT)
+export async function listSessions(vaultId) {
+  const vaultPath = getVaultPath(vaultId || getDefaultVaultId())
+  if (!vaultPath) return []
+  const infos = await SessionManager.list(vaultPath)
   return infos
     .sort((a, b) => new Date(b.modified) - new Date(a.modified))
     .map((s) => ({
@@ -235,17 +278,14 @@ const blocksText = (content) => {
     .join('\n')
 }
 
-const toolDetail = (args) => {
-  if (!args || typeof args !== 'object') return null
-  return args.path ?? args.pattern ?? args.file_path ?? null
-}
-
 /** 线性回放主分支，把 JSONL entries 转成前端 turns 消息格式（pi-web 风格） */
-export async function sessionMessages(sessionId) {
+export async function sessionMessages(sessionId, vaultId) {
   const cached = cache.get(sessionId)
   let sm = cached?.sm
+  const vaultPath = cached?.vaultPath || getVaultPath(vaultId || getDefaultVaultId())
   if (!sm) {
-    const infos = await SessionManager.list(VAULT)
+    if (!vaultPath) return null
+    const infos = await SessionManager.list(vaultPath)
     const info = infos.find((s) => s.id === sessionId || s.id.startsWith(sessionId))
     if (!info) return null
     sm = await SessionManager.open(info.path)
@@ -298,13 +338,15 @@ export async function sessionMessages(sessionId) {
   return { sessionId: cached?.sessionId ?? sessionId, name: sm.getSessionName?.() ?? null, messages: out }
 }
 
-export async function renameSession(sessionId, name) {
+export async function renameSession(sessionId, name, vaultId) {
   const cached = cache.get(sessionId)
   if (cached) {
     cached.sm.appendSessionInfo(name)
     return true
   }
-  const infos = await SessionManager.list(VAULT)
+  const vaultPath = getVaultPath(vaultId || getDefaultVaultId())
+  if (!vaultPath) return false
+  const infos = await SessionManager.list(vaultPath)
   const info = infos.find((s) => s.id === sessionId || s.id.startsWith(sessionId))
   if (!info) return false
   const sm = await SessionManager.open(info.path)
@@ -312,9 +354,12 @@ export async function renameSession(sessionId, name) {
   return true
 }
 
-export async function deleteSession(sessionId) {
+export async function deleteSession(sessionId, vaultId) {
   await disposeEntry(sessionId)
-  const infos = await SessionManager.list(VAULT)
+  const cached = cache.get(sessionId)
+  const vaultPath = cached?.vaultPath || getVaultPath(vaultId || getDefaultVaultId())
+  if (!vaultPath) return false
+  const infos = await SessionManager.list(vaultPath)
   const info = infos.find((s) => s.id === sessionId || s.id.startsWith(sessionId))
   if (!info) return false
   if (existsSync(info.path)) rmSync(info.path)

@@ -1,21 +1,24 @@
-// index.mjs — agent-server：pi coding agent SDK 嵌入，为 wiki-viewer 提供
+// index.mjs — agent-server（多 vault 版本）：pi coding agent SDK 嵌入，为 wiki-viewer 提供
 // 持久化会话问答（chat）、摄取/修复任务（task，经暂存审核门）、会话管理、
-// 文件浏览、模型与 Skills 信息。启动：npm start（默认端口 8787，仅绑 localhost）
+// 文件浏览、模型与 Skills 信息、多知识库管理。启动：npm start（默认端口 8787，仅绑 localhost）
 import { createServer } from 'node:http'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getAgentDir, createAgentSession, SessionManager, DefaultResourceLoader } from '@earendil-works/pi-coding-agent'
-import { VAULT, pageContextBlock, buildTaskPrompt } from './lib/vault.mjs'
-import { readVaultFile } from './lib/vault.mjs'
+import { DEFAULT_VAULT, pageContextBlock, buildTaskPrompt, readVaultFile } from './lib/vault.mjs'
+import { loadRegistry, getVaultPath, getDefaultVaultId, resolveVaultId, addVault, WORKSPACE } from './lib/registry.mjs'
 import {
   applySession,
+  applyFiles,
   collectDiffs,
   createSession,
   discardSession,
+  discardFiles,
   getSession,
   listSessions as listStaging,
+  recoverFromDisk,
   toVaultRel,
   writeVaultFile,
 } from './lib/staging.mjs'
@@ -31,7 +34,9 @@ import {
   TOOLS,
   TOOL_CATALOG,
   setModeTools,
+  sessionUsage,
 } from './lib/sessions.mjs'
+import { saveUploadedFiles, clipUrl } from './lib/inbox.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.AGENT_PORT || 8787)
@@ -40,11 +45,12 @@ const PI_VERSION = JSON.parse(
   readFileSync(join(__dirname, 'node_modules', '@earendil-works', 'pi-coding-agent', 'package.json'), 'utf8'),
 ).version
 const SYNC_SCRIPT = join(__dirname, '..', 'wiki-viewer', 'scripts', 'sync-data.mjs')
+const NEW_VAULT_SCRIPT = join(__dirname, '..', 'wiki-viewer', 'scripts', 'new-vault.mjs')
 
 /* ————— HTTP 小工具 ————— */
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 }
 
@@ -174,6 +180,8 @@ async function runStreaming(req, res, obtain, promptText, { onAfterPrompt, onSes
       mode: entry.mode,
     })
     onSessionReady?.(entry)
+    // 流开始即推一次实时用量（上下文/成本），不必等轮结束
+    sse(res, 'usage', usageSnapshot(entry.session))
     unsubscribe = pipeEvents(entry.session, res)
     entry.busy = true
     await entry.session.prompt(promptText)
@@ -203,6 +211,8 @@ async function handleChat(req, res) {
   const message = String(body?.message || '').trim()
   if (!message) return json(res, 400, { error: 'message is required' })
   const contextPageId = body?.contextPageId || null
+  const vault = resolveVaultId(body?.vaultId)
+  if (!vault) return json(res, 400, { error: `vault not found: ${body?.vaultId}` })
 
   // @文件引用：读取 vault 内文件内容注入上下文
   let refBlocks = ''
@@ -210,21 +220,12 @@ async function handleChat(req, res) {
     .map((m) => m[1])
     .filter((v, i, a) => a.indexOf(v) === i)
   for (const r of refs) {
-    const content = readVaultFile(r)
+    const content = readVaultFile(vault.path, r)
     if (content != null) refBlocks += `\n【引用文件 @${r} 的内容】\n${content.slice(0, 20000)}\n`
   }
 
-  // /skill 前缀：内嵌 SKILL.md 全文作为执行指令（仅项目级 .pi/skills，不读全局）
-  let skillBlock = ''
-  let finalMessage = message
-  const sm = message.match(/^\/([\w-]+)(?:\s+([\s\S]*))?$/)
-  if (sm) {
-    const skillMd = readVaultFile(`.pi/skills/${sm[1]}/SKILL.md`)
-    if (skillMd) {
-      skillBlock = `\n【指令】用户调用了 skill /${sm[1]}，其完整规范如下，请严格按其流程执行：\n${skillMd}\n`
-      finalMessage = sm[2]?.trim() || `执行 /${sm[1]}`
-    }
-  }
+  // /skill 斜杠命令不再内联 SKILL.md 全文：技能索引已在系统提示（formatSkillsForPrompt），
+  // 用户消息保持干净的斜杠原文，由模型按系统提示读取对应 SKILL.md 执行（pi 原生技能模型）。
 
   sseHead(res)
   let entry = null
@@ -240,23 +241,25 @@ async function handleChat(req, res) {
       mode: 'query',
       model: body?.model || null,
       thinkingLevel: body?.thinkingLevel || null,
+      vaultId: vault.id,
     })
     sse(res, 'session', {
       sessionId: entry.sessionId,
       name: entry.sm.getSessionName?.() ?? null,
       mode: entry.mode,
     })
+    // 流开始即推一次实时用量（上下文/成本），不必等轮结束
+    sse(res, 'usage', usageSnapshot(entry.session))
     // 页面上下文只在切换时注入一次，避免持久会话里反复重复
     const ctx =
-      contextPageId && contextPageId !== entry.lastContextPage ? pageContextBlock(contextPageId) : ''
+      contextPageId && contextPageId !== entry.lastContextPage ? pageContextBlock(vault.path, contextPageId) : ''
     entry.lastContextPage = contextPageId || entry.lastContextPage
     unsubscribe = pipeEvents(entry.session, res)
     entry.busy = true
     const promptParts = []
     if (ctx) promptParts.push(ctx)
     if (refBlocks) promptParts.push(refBlocks)
-    if (skillBlock) promptParts.push(skillBlock)
-    promptParts.push(finalMessage)
+    promptParts.push(message)
     await entry.session.prompt(promptParts.join('\n'))
     if (!closed) {
       // 审核门：本轮若产生暂存改动（write/edit 被重定向），推送 diff 审核卡
@@ -283,13 +286,15 @@ async function handleChat(req, res) {
 async function handleTask(req, res) {
   const body = await readBody(req).catch(() => null)
   const mode = body?.mode === 'lint' ? 'lint' : 'ingest'
+  const vault = resolveVaultId(body?.vaultId)
+  if (!vault) return json(res, 400, { error: `vault not found: ${body?.vaultId}` })
 
   let target
   if (mode === 'ingest') {
     const rawFile = String(body?.rawFile || '').trim()
     if (!rawFile) return json(res, 400, { error: 'rawFile is required' })
-    const rel = toVaultRel(rawFile.startsWith('raw/') ? rawFile : `raw/${rawFile}`)
-    if (!rel || !rel.startsWith('raw/') || !existsSync(join(VAULT, rel)))
+    const rel = toVaultRel(vault.path, rawFile.startsWith('raw/') ? rawFile : `raw/${rawFile}`)
+    if (!rel || !rel.startsWith('raw/') || !existsSync(join(vault.path, rel)))
       return json(res, 400, { error: `raw 文件不存在：${rawFile}` })
     target = rel
   } else {
@@ -298,7 +303,7 @@ async function handleTask(req, res) {
     target = issues
   }
 
-  const staging = createSession(mode, mode === 'ingest' ? target : `${target.length} 项问题`)
+  const staging = createSession(vault.path, mode, mode === 'ingest' ? target : `${target.length} 项问题`)
   const detail =
     mode === 'ingest'
       ? target
@@ -307,7 +312,7 @@ async function handleTask(req, res) {
   return runStreaming(
     req,
     res,
-    () => obtainSession({ sessionId: body?.sessionId || null, mode, stagingSess: staging }),
+    () => obtainSession({ sessionId: body?.sessionId || null, mode, stagingSess: staging, vaultId: vault.id }),
     buildTaskPrompt(mode, detail),
     {
       onAfterPrompt: () => {
@@ -318,7 +323,7 @@ async function handleTask(req, res) {
   )
 }
 
-/** 重跑 viewer 同步脚本，刷新前端数据快照 */
+/** 重跑 viewer 同步脚本，刷新前端数据快照（同步所有 vault） */
 function runSync() {
   try {
     execFileSync(process.execPath, [SYNC_SCRIPT], { stdio: 'pipe', timeout: 60000 })
@@ -333,16 +338,30 @@ async function handleApply(req, res) {
   const body = await readBody(req).catch(() => null)
   const id = String(body?.sessionId || '')
   if (!getSession(id)) return json(res, 404, { error: `暂存会话不存在或已处理：${id}` })
+  // 支持子集（逐文件应用）：body.files 为非空数组时只应用这些文件
+  const subset = Array.isArray(body?.files) ? body.files.filter((f) => typeof f === 'string') : []
+  if (subset.length) {
+    const r = applyFiles(id, subset)
+    if (!r) return json(res, 404, { error: `暂存会话不存在：${id}` })
+    const synced = runSync()
+    return json(res, 200, { ok: true, changed: r.changed, synced, done: r.done, remaining: r.remaining })
+  }
   const changed = applySession(id)
   const synced = runSync()
-  json(res, 200, { ok: true, changed, synced })
+  json(res, 200, { ok: true, changed, synced, done: true, remaining: 0 })
 }
 
 async function handleDiscard(req, res) {
   const body = await readBody(req).catch(() => null)
   const id = String(body?.sessionId || '')
+  const subset = Array.isArray(body?.files) ? body.files.filter((f) => typeof f === 'string') : []
+  if (subset.length) {
+    const r = discardFiles(id, subset)
+    if (!r) return json(res, 404, { error: `暂存会话不存在：${id}` })
+    return json(res, 200, { ok: true, done: r.done, remaining: r.remaining })
+  }
   const ok = discardSession(id)
-  json(res, ok ? 200 : 404, ok ? { ok: true } : { error: `暂存会话不存在：${id}` })
+  json(res, ok ? 200 : 404, ok ? { ok: true, done: true, remaining: 0 } : { error: `暂存会话不存在：${id}` })
 }
 
 /** 保存问答结果到 output/（成品出口：不走 agent，直接写入并重新同步） */
@@ -352,6 +371,8 @@ async function handleSaveOutput(req, res) {
   const content = String(body?.content || '')
   const question = String(body?.question || '').trim()
   if (!title || !content.trim()) return json(res, 400, { error: 'title 与 content 必填' })
+  const vault = resolveVaultId(body?.vaultId)
+  if (!vault) return json(res, 400, { error: `vault not found: ${body?.vaultId}` })
   const slug =
     title
       .toLowerCase()
@@ -362,7 +383,7 @@ async function handleSaveOutput(req, res) {
   const rel = `output/${slug}-${date.replace(/-/g, '')}.md`
   const md = `---\ntags: [output]\ncreated: ${date}\nupdated: ${date}\n---\n\n# ${title}\n\n${question ? `> 来源问题：${question}\n\n` : ''}${content.trim()}\n`
   try {
-    writeVaultFile(rel, md)
+    writeVaultFile(vault.path, rel, md)
   } catch (e) {
     return json(res, 400, { error: String(e?.message || e) })
   }
@@ -374,9 +395,11 @@ async function handleSaveOutput(req, res) {
 const HIDDEN_DIRS = new Set(['.staging', '.git', 'node_modules', '.trash', '.obsidian', '.ok', '.cursor'])
 
 function handleFiles(url, res) {
-  const rel = toVaultRel(url.searchParams.get('path') || '')
+  const vault = resolveVaultId(url.searchParams.get('vaultId'))
+  if (!vault) return json(res, 400, { error: 'vault not found' })
+  const rel = toVaultRel(vault.path, url.searchParams.get('path') || '')
   if (rel === null) return json(res, 403, { error: 'path escapes vault' })
-  const dir = join(VAULT, rel)
+  const dir = join(vault.path, rel)
   if (!existsSync(dir) || !statSync(dir).isDirectory()) return json(res, 404, { error: `目录不存在：${rel || '/'}` })
   const entries = readdirSync(dir)
     .filter((n) => !HIDDEN_DIRS.has(n))
@@ -390,9 +413,11 @@ function handleFiles(url, res) {
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024
 function handleFile(url, res) {
-  const rel = toVaultRel(url.searchParams.get('path') || '')
+  const vault = resolveVaultId(url.searchParams.get('vaultId'))
+  if (!vault) return json(res, 400, { error: 'vault not found' })
+  const rel = toVaultRel(vault.path, url.searchParams.get('path') || '')
   if (!rel) return json(res, 403, { error: 'path escapes vault' })
-  const file = join(VAULT, rel)
+  const file = join(vault.path, rel)
   if (!existsSync(file) || !statSync(file).isFile()) return json(res, 404, { error: `文件不存在：${rel}` })
   const size = statSync(file).size
   const truncated = size > MAX_FILE_BYTES
@@ -408,8 +433,9 @@ function handleFile(url, res) {
 let defaultModelPromise = null
 function resolveDefaultModel() {
   if (!defaultModelPromise) {
+    const vaultPath = getVaultPath(getDefaultVaultId()) || DEFAULT_VAULT
     defaultModelPromise = createAgentSession({
-      cwd: VAULT,
+      cwd: vaultPath,
       tools: ['read'],
       sessionManager: SessionManager.inMemory(),
     })
@@ -461,9 +487,11 @@ function parseSkillFrontmatter(text) {
   return out.name ? out : null
 }
 
-function handleSkills(res) {
-  // 仅加载项目级 skills（llmwiki/.pi/skills），不读全局 ~/.pi/agent/skills
-  const dir = join(VAULT, '.pi', 'skills')
+function handleSkills(url, res) {
+  const vault = resolveVaultId(url.searchParams.get('vaultId'))
+  if (!vault) return json(res, 400, { error: 'vault not found' })
+  // 仅加载项目级 skills（<vault>/.pi/skills），不读全局 ~/.pi/agent/skills
+  const dir = join(vault.path, '.pi', 'skills')
   const skills = []
   if (existsSync(dir)) {
     for (const name of readdirSync(dir)) {
@@ -477,13 +505,14 @@ function handleSkills(res) {
 }
 
 /** 插件清单：会话实际加载的 extensions（仅项目级 .pi/extensions）+ server 内置插件 */
-async function handleExtensions(res) {
+async function handleExtensions(url, res) {
+  const vault = resolveVaultId(url.searchParams.get('vaultId'))
+  if (!vault) return json(res, 400, { error: 'vault not found' })
   try {
-    const projectExtDir = join(VAULT, '.pi', 'extensions')
+    const projectExtDir = join(vault.path, '.pi', 'extensions')
     const loader = new DefaultResourceLoader({
-      cwd: VAULT,
+      cwd: vault.path,
       agentDir: getAgentDir(),
-      // 与 obtainSession 同策略：仅项目级 extensions，不加载全局插件
       noExtensions: true,
       additionalExtensionPaths: existsSync(projectExtDir) ? [projectExtDir] : [],
     })
@@ -491,7 +520,7 @@ async function handleExtensions(res) {
     const r = loader.getExtensions()
     const vaultRel = (p) => {
       const rp = String(p).replace(/\\/g, '/')
-      const v = VAULT.replace(/\\/g, '/')
+      const v = vault.path.replace(/\\/g, '/')
       if (rp.startsWith(`${v}/`)) return rp.slice(v.length + 1)
       const a = getAgentDir().replace(/\\/g, '/')
       if (rp.startsWith(`${a}/`)) return `~/${rp.slice(a.length + 1)}`
@@ -510,7 +539,6 @@ async function handleExtensions(res) {
           const path = vaultRel(e.resolvedPath || e.path)
           return {
             path,
-            // 加载源为 additionalExtensionPaths（temporary scope），按路径归一为 project
             scope: path.startsWith('~/') ? 'user' : 'project',
             tools: [...e.tools.keys()],
             commands: [...e.commands.keys()],
@@ -536,9 +564,10 @@ function walkFiles(dir, base, out) {
 }
 
 function handleSearch(url, res) {
+  const vault = resolveVaultId(url.searchParams.get('vaultId'))
+  if (!vault) return json(res, 400, { error: 'vault not found' })
   const q = (url.searchParams.get('q') || '').trim().toLowerCase()
-  const all = walkFiles(VAULT, VAULT, [])
-  // 空查询：按修改时间倒序返回最近文件（@ 刚键入时的默认列表）；有查询：子串匹配按路径长度排
+  const all = walkFiles(vault.path, vault.path, [])
   const results = q
     ? all.filter((f) => f.path.toLowerCase().includes(q)).sort((a, b) => a.path.length - b.path.length)
     : all.sort((a, b) => b.mtime - a.mtime)
@@ -559,6 +588,71 @@ async function handleCompact(req, res) {
   }
 }
 
+/* ————— 多知识库管理 ————— */
+
+function handleVaults(res) {
+  json(res, 200, { vaults: loadRegistry() })
+}
+
+async function handleNewVault(req, res) {
+  const body = await readBody(req).catch(() => null)
+  const id = String(body?.id || '').trim()
+  const name = String(body?.name || '').trim()
+  const path = String(body?.path || '').trim() || id
+  const description = String(body?.description || '').trim()
+  if (!id || !name) return json(res, 400, { error: 'id 与 name 必填' })
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) return json(res, 400, { error: 'id 只允许小写字母、数字和连字符' })
+  try {
+    execFileSync(
+      process.execPath,
+      [NEW_VAULT_SCRIPT, '--id', id, '--name', name, '--path', path, ...(description ? ['--description', description] : [])],
+      { stdio: 'pipe', timeout: 60000 },
+    )
+    json(res, 200, { ok: true, vaults: loadRegistry() })
+  } catch (e) {
+    const stderr = e?.stderr ? String(e.stderr) : ''
+    json(res, 500, { error: stderr || String(e?.message || e) })
+  }
+}
+
+/* ————— raw/ 收件箱：本地上传 + URL 剪藏（不走审核门，server 直接落盘） ————— */
+
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024 // 单文件 20MB 上限
+
+async function handleRawUpload(req, res) {
+  const body = await readBody(req).catch(() => null)
+  const vault = resolveVaultId(body?.vaultId)
+  if (!vault) return json(res, 400, { error: `vault not found: ${body?.vaultId}` })
+  const files = Array.isArray(body?.files) ? body.files : []
+  if (!files.length) return json(res, 400, { error: 'files is required' })
+  for (const f of files) {
+    if (!f?.name || typeof f.contentBase64 !== 'string') return json(res, 400, { error: '每个文件需含 name 与 contentBase64' })
+    if (f.contentBase64.length > MAX_UPLOAD_BYTES * 1.4) return json(res, 400, { error: `文件过大（>20MB）：${f.name}` })
+  }
+  try {
+    const { written } = saveUploadedFiles(vault.path, files)
+    const synced = runSync()
+    json(res, 200, { ok: true, written, synced })
+  } catch (e) {
+    json(res, 500, { error: String(e?.message || e) })
+  }
+}
+
+async function handleRawClip(req, res) {
+  const body = await readBody(req).catch(() => null)
+  const vault = resolveVaultId(body?.vaultId)
+  if (!vault) return json(res, 400, { error: `vault not found: ${body?.vaultId}` })
+  const urlToClip = String(body?.url || '').trim()
+  if (!urlToClip) return json(res, 400, { error: 'url is required' })
+  try {
+    const result = await clipUrl(vault.path, urlToClip)
+    const synced = runSync()
+    json(res, 200, { ok: true, ...result, synced })
+  } catch (e) {
+    json(res, 500, { error: String(e?.message || e) })
+  }
+}
+
 /* ————— HTTP server ————— */
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`)
@@ -570,27 +664,36 @@ const server = createServer(async (req, res) => {
   try {
     // 基础
     if (req.method === 'GET' && p === '/agent/health')
-      return json(res, 200, { ok: true, piVersion: PI_VERSION, vault: VAULT.replace(/\\/g, '/') })
+      return json(res, 200, { ok: true, piVersion: PI_VERSION, vault: DEFAULT_VAULT.replace(/\\/g, '/'), vaults: loadRegistry().length })
+
+    // 多知识库管理
+    if (req.method === 'GET' && p === '/agent/vaults') return handleVaults(res)
+    if (req.method === 'POST' && p === '/agent/vaults/new') return await handleNewVault(req, res)
+
+    // raw/ 收件箱：本地上传 + URL 剪藏
+    if (req.method === 'POST' && p === '/agent/raw/upload') return await handleRawUpload(req, res)
+    if (req.method === 'POST' && p === '/agent/raw/clip') return await handleRawClip(req, res)
 
     // 会话管理
     if (req.method === 'GET' && p === '/agent/sessions')
-      return json(res, 200, { sessions: await listSessions() })
+      return json(res, 200, { sessions: await listSessions(url.searchParams.get('vaultId')) })
     const mMsg = p.match(/^\/agent\/sessions\/([^/]+)\/messages$/)
     if (req.method === 'GET' && mMsg) {
-      const r = await sessionMessages(decodeURIComponent(mMsg[1]))
-      return r ? json(res, 200, r) : json(res, 404, { error: '会话不存在' })
+      const sid = decodeURIComponent(mMsg[1])
+      const r = await sessionMessages(sid, url.searchParams.get('vaultId'))
+      return r ? json(res, 200, { ...r, usage: sessionUsage(sid) }) : json(res, 404, { error: '会话不存在' })
     }
     const mRename = p.match(/^\/agent\/sessions\/([^/]+)\/rename$/)
     if (req.method === 'POST' && mRename) {
       const body = await readBody(req).catch(() => null)
       const name = String(body?.name || '').trim().slice(0, 80)
       if (!name) return json(res, 400, { error: 'name is required' })
-      const ok = await renameSession(decodeURIComponent(mRename[1]), name)
+      const ok = await renameSession(decodeURIComponent(mRename[1]), name, body?.vaultId)
       return ok ? json(res, 200, { ok: true }) : json(res, 404, { error: '会话不存在' })
     }
     const mDel = p.match(/^\/agent\/sessions\/([^/]+)$/)
     if (req.method === 'DELETE' && mDel) {
-      const ok = await deleteSession(decodeURIComponent(mDel[1]))
+      const ok = await deleteSession(decodeURIComponent(mDel[1]), url.searchParams.get('vaultId'))
       return ok ? json(res, 200, { ok: true }) : json(res, 404, { error: '会话不存在' })
     }
 
@@ -598,10 +701,18 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && p === '/agent/chat') return await handleChat(req, res)
     if (req.method === 'POST' && p === '/agent/task') return await handleTask(req, res)
 
-    // 审核门
-    if (req.method === 'GET' && p === '/agent/staging') return json(res, 200, { sessions: listStaging() })
+    // 审核门（查询时按需恢复磁盘孤儿暂存，保证「刷新」总能反映 .staging 真相）
+    if (req.method === 'GET' && p === '/agent/staging') {
+      const vault = resolveVaultId(url.searchParams.get('vaultId'))
+      if (vault) recoverFromDisk(vault.path)
+      return json(res, 200, { sessions: listStaging(vault?.path) })
+    }
     const mStage = p.match(/^\/agent\/staging\/([^/]+)$/)
     if (req.method === 'GET' && mStage) {
+      for (const e of loadRegistry()) {
+        const vp = getVaultPath(e.id)
+        if (vp) recoverFromDisk(vp)
+      }
       const files = collectDiffs(decodeURIComponent(mStage[1]))
       return files ? json(res, 200, { sessionId: decodeURIComponent(mStage[1]), files }) : json(res, 404, { error: '暂存会话不存在' })
     }
@@ -617,8 +728,8 @@ const server = createServer(async (req, res) => {
 
     // 模型与 Skills
     if (req.method === 'GET' && p === '/agent/models') return await handleModels(res)
-    if (req.method === 'GET' && p === '/agent/skills') return handleSkills(res)
-    if (req.method === 'GET' && p === '/agent/extensions') return await handleExtensions(res)
+    if (req.method === 'GET' && p === '/agent/skills') return handleSkills(url, res)
+    if (req.method === 'GET' && p === '/agent/extensions') return await handleExtensions(url, res)
     if (req.method === 'GET' && p === '/agent/tools') return json(res, 200, { catalog: TOOL_CATALOG, modes: TOOLS })
     if (req.method === 'PUT' && p === '/agent/tools') {
       const body = await readBody(req).catch(() => null)
@@ -639,8 +750,17 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(PORT, '127.0.0.1', async () => {
+  const reg = loadRegistry()
   console.log(`[agent-server] listening on http://127.0.0.1:${PORT}`)
-  console.log(`[agent-server] vault: ${VAULT}`)
+  console.log(`[agent-server] vaults: ${reg.length} (${reg.map((v) => v.id).join(', ') || 'none'})`)
+  console.log(`[agent-server] default vault: ${getDefaultVaultId() || 'NONE'} → ${DEFAULT_VAULT}`)
+  // 启动恢复：把磁盘上的孤儿暂存会话重新登记，避免重启后审核入口丢失
+  for (const entry of reg) {
+    const vp = getVaultPath(entry.id)
+    if (!vp) continue
+    const recovered = recoverFromDisk(vp)
+    if (recovered.length) console.log(`[agent-server] recovered staging for ${entry.id}: ${recovered.join(', ')}`)
+  }
   // 启动自检：模型目录与默认模型解析（失败时立即可见，避免聊天时才报 unknown/unknown）
   try {
     const rt = await getModelRuntime()

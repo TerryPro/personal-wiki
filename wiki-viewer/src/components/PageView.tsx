@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, Code2, Columns2, Eye, FileArchive, Sparkles } from 'lucide-react'
 import { marked } from 'marked'
 import { highlightBlocks } from '@/lib/highlight'
-import { applyOutlineIds, getBacklinks, getPage, outlineFromHtml, resolveTitle, CATEGORY_META } from '@/lib/wiki'
+import { applyOutlineIds, data, getBacklinks, getPage, outlineFromHtml, resolveTitle, CATEGORY_META } from '@/lib/wiki'
 import { hidePreview, showPreview } from '@/lib/preview'
 import type { OutlineItem, WikiPage } from '@/types'
 
@@ -106,11 +106,11 @@ function highlightQuery(root: HTMLElement, q: string): number {
   return count
 }
 
-/** Obsidian 风格 ![[图片]] 嵌入 → 标准 md 图片（指向 sync 同步过来的 /assets/） */
-function rewriteEmbeds(body: string): string {
+/** Obsidian 风格 ![[图片]] 嵌入 → 标准 md 图片（指向 sync 同步过来的 /assets/<vaultId>/） */
+function rewriteEmbeds(body: string, vaultId: string): string {
   return body.replace(/!\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_m, name: string, alias?: string) => {
     const file = name.trim().split('/').pop()!
-    return `![${(alias || file).trim()}](/assets/${encodeURIComponent(file)})`
+    return `![${(alias || file).trim()}](/assets/${encodeURIComponent(vaultId)}/${encodeURIComponent(file)})`
   })
 }
 
@@ -178,7 +178,7 @@ export default function PageView({ page, onNavigate, onOutline, hl, view, onInge
   outlineCb.current = onOutline
 
   const { html, outline } = useMemo(() => {
-    const body = rewriteEmbeds(page.content.replace(/^# .+$/m, '')) // 标题单独渲染，避免双标题
+    const body = rewriteEmbeds(page.content.replace(/^# .+$/m, ''), data.vaultId) // 标题单独渲染，避免双标题
     const h = marked.parse(body, { async: false, gfm: true }) as string
     return { html: h, outline: outlineFromHtml(h) }
   }, [page])

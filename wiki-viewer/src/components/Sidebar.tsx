@@ -1,14 +1,16 @@
-import { useState } from 'react'
-import { CircleDashed, FileText, Tag } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ChevronDown, CircleDashed, FileText, Tag } from 'lucide-react'
 import Brand from '@/components/Brand'
 import { CATEGORY_META, brokenLinks, getPage, groupedByCategory, listTags, search } from '@/lib/wiki'
-import type { WikiPage } from '@/types'
+import type { Category, WikiPage } from '@/types'
 
 interface Props {
   activeId: string | null
   query: string
   onQuery: (q: string) => void
   onOpen: (page: WikiPage) => void
+  /** 点击品牌区回首页 */
+  onHome?: () => void
 }
 
 type View = 'dir' | 'tag' | 'todo'
@@ -19,16 +21,32 @@ const VIEWS: [View, string, typeof Tag][] = [
   ['todo', '待创建', CircleDashed],
 ]
 
-export default function Sidebar({ activeId, query, onQuery, onOpen }: Props) {
+export default function Sidebar({ activeId, query, onQuery, onOpen, onHome }: Props) {
   const hits = query.trim() ? search(query) : null
   const [view, setView] = useState<View>('dir')
   const [openTag, setOpenTag] = useState<string | null>(null)
   const [openBroken, setOpenBroken] = useState<string | null>(null)
+  // 目录视图分类组的收拢状态（持久化）
+  const [collapsed, setCollapsed] = useState<Set<Category>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem('wv-side-cats') ?? '[]') as Category[])
+    } catch {
+      return new Set()
+    }
+  })
+  useEffect(() => localStorage.setItem('wv-side-cats', JSON.stringify([...collapsed])), [collapsed])
+  const toggleCat = (c: Category) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(c)) next.delete(c)
+      else next.add(c)
+      return next
+    })
 
   return (
     <aside className="flex w-side shrink-0 flex-col border-r border-line bg-ink-soft">
-      {/* brand */}
-      <Brand />
+      {/* brand（点击回首页） */}
+      <Brand onClick={onHome} />
 
       {/* search */}
       <div className="px-3 pb-2 pt-3">
@@ -61,7 +79,7 @@ export default function Sidebar({ activeId, query, onQuery, onOpen }: Props) {
                 key={v}
                 onClick={() => setView(v)}
                 className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-1 font-medium transition-all duration-150 ${
-                  view === v ? 'bg-surface-raised text-fg shadow-panel' : 'text-fg-muted hover:text-fg-secondary'
+                  view === v ? 'bg-surface-raised text-fg' : 'text-fg-muted hover:text-fg-secondary'
                 }`}
               >
                 <Icon size={12} strokeWidth={2} />
@@ -172,13 +190,20 @@ export default function Sidebar({ activeId, query, onQuery, onOpen }: Props) {
         ) : (
           groupedByCategory().map((g) => {
             const GroupIcon = CATEGORY_META[g.category].icon
+            const isCollapsed = collapsed.has(g.category)
             return (
             <section key={g.category} className="mt-4 first:mt-2">
-              <div className="flex items-center gap-1.5 px-1 pb-1.5">
+              <button
+                onClick={() => toggleCat(g.category)}
+                title={isCollapsed ? `展开「${g.label}」` : `收拢「${g.label}」`}
+                className="flex w-full items-center gap-1.5 px-1 pb-1.5 text-left"
+              >
+                <ChevronDown size={11} strokeWidth={2.2} className={`shrink-0 text-fg-muted transition-transform ${isCollapsed ? '-rotate-90' : ''}`} />
                 <GroupIcon size={12} strokeWidth={2.1} style={{ color: CATEGORY_META[g.category].dot }} />
                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted">{g.label}</span>
-                <span className="text-[11px] text-fg-muted/70">{g.items.length}</span>
-              </div>
+                <span className="ml-auto text-[11px] text-fg-muted/70">{g.items.length}</span>
+              </button>
+              {!isCollapsed && (
               <div className="space-y-[1px]">
                 {g.items.map((p) => {
                   const Icon = CATEGORY_META[p.category].icon
@@ -200,6 +225,7 @@ export default function Sidebar({ activeId, query, onQuery, onOpen }: Props) {
                   )
                 })}
               </div>
+              )}
             </section>
             )
           })

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, Lightbulb, Loader2, PackagePlus } from 'lucide-react'
+import { Check, ChevronDown, ExternalLink, Hammer, Lightbulb, Loader2, PackagePlus, Sparkles, Terminal } from 'lucide-react'
 import { marked } from 'marked'
 import type { AgentToolCall, DiffFile, TurnView } from '@/lib/agent'
 import { hydrateWikiLinks } from '@/components/PageView'
@@ -27,6 +27,36 @@ export type Msg =
       state: 'pending' | 'applied' | 'discarded'
       note?: string
     }
+
+/** 一轮对话 = 一条 user + 其后第一条有文本的 assistant；供索引抽屉与 minimap 使用 */
+export interface Exchange {
+  idx: number
+  user: string
+  assistant: string
+}
+export function buildExchanges(msgs: Msg[]): Exchange[] {
+  const out: Exchange[] = []
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i]
+    if (m.role !== 'user') continue
+    let asst = ''
+    for (let j = i + 1; j < msgs.length; j++) {
+      const n = msgs[j]
+      if (n.role === 'user') break
+      if (n.role === 'assistant') {
+        const t = n.turns.map((t) => t.text).join(' ').trim()
+        if (t) { asst = t; break }
+      }
+    }
+    out.push({ idx: i, user: m.text, assistant: asst })
+  }
+  return out
+}
+
+/** 滚动到第 i 条消息 */
+export function jumpToMsg(i: number) {
+  document.getElementById(`wv-msg-${i}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 const fmtNum = (n: number) => n.toLocaleString('en-US')
 const fmtDur = (ms: number | null | undefined) =>
@@ -232,11 +262,56 @@ interface Props {
   busy: boolean
   onLink: (p: WikiPage) => void
   onSave: (i: number) => void
-  onApply: (i: number) => void
-  onDiscard: (i: number) => void
+  /** 打开右栏审查面板（diffs 消息只留指针，审核在右栏进行） */
+  onOpenReview: (sessionId: string) => void
 }
 
-export default function ChatWindow({ msgs, busy, onLink, onSave, onApply, onDiscard }: Props) {
+const LONG_TEXT = 160
+
+/** 用户消息：旧版技能 blob 折叠为命令头（可展开全文）；超长文本默认两行截断 + 展开/收起；短斜杠命令用芯片 */
+function UserMsg({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const legacySkill = text.match(/^【指令】用户调用了 skill (\/[\w-]+)/)
+  const slashCmd = !legacySkill && /^\/(skill:)?[\w-]+(\s|$)/.test(text)
+  const long = text.length > LONG_TEXT
+
+  if (legacySkill)
+    return (
+      <div className="max-w-[85%] overflow-hidden rounded-lg border border-accent/40 bg-accent/10">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          title={open ? '收起技能全文' : '展开技能全文'}
+          className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left font-mono text-[12px] text-accent"
+        >
+          <Terminal size={12} className="shrink-0" />
+          {legacySkill[1]}
+          <span className="shrink-0 text-fg-muted">(skill)</span>
+          <ChevronDown size={11} className={`ml-auto shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+        {open && (
+          <pre className="max-h-72 overflow-auto whitespace-pre-wrap border-t border-accent/20 px-3 py-2 font-mono text-[11px] leading-[1.6] text-fg-secondary">
+            {text}
+          </pre>
+        )}
+      </div>
+    )
+
+  if (slashCmd && !long)
+    return <div className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 font-mono text-[12.5px] text-accent">{text}</div>
+
+  return (
+    <div className="max-w-[80%] rounded-lg bg-cat-source/15 px-3.5 py-2 text-[13px] leading-6 text-fg">
+      <div className={long && !open ? 'line-clamp-2' : ''}>{text}</div>
+      {long && (
+        <button onClick={() => setOpen((v) => !v)} className="mt-0.5 text-[11px] font-medium text-accent hover:underline">
+          {open ? '收起' : '展开'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+export default function ChatWindow({ msgs, busy, onLink, onSave, onOpenReview }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // 新消息自动滚到底部
@@ -246,74 +321,85 @@ export default function ChatWindow({ msgs, busy, onLink, onSave, onApply, onDisc
   }, [msgs, busy])
 
   return (
-    <div
-      ref={scrollRef}
-      className="min-h-0 flex-1 overflow-y-auto px-5"
-      style={{ paddingTop: 'var(--chat-pad-y, 1rem)', paddingBottom: 'var(--chat-pad-y, 1rem)' }}
-    >
+    <div className="relative flex min-h-0 flex-1">
+      <div
+        ref={scrollRef}
+        data-chat-scroll
+        className="min-h-0 flex-1 overflow-y-auto px-5"
+        style={{ paddingTop: 'var(--chat-pad-y, 1rem)', paddingBottom: 'var(--chat-pad-y, 1rem)' }}
+      >
       {/* 空会话欢迎页由 AiMode 居中布局接管，这里只渲染有消息的列表 */}
       {msgs.length > 0 && (
         <div className="mx-auto max-w-full space-y-6" style={{ width: 'var(--chat-w, 72%)' }}>
           {msgs.map((m, i) => {
-            if (m.role === 'user')
+            if (m.role === 'user') {
               return (
-                <div key={i} className="flex flex-col items-end">
-                  <div className="max-w-[80%] rounded-lg bg-cat-source/15 px-3.5 py-2 text-[13px] leading-6 text-fg">
-                    {m.text}
-                  </div>
+                <div key={i} id={`wv-msg-${i}`} className="flex flex-col items-end">
+                  <UserMsg text={m.text} />
                   <span className="mt-1 text-[10px] text-fg-muted">{fmtTime(m.ts)}</span>
                 </div>
               )
+            }
             if (m.role === 'diffs')
               return (
-                <div key={i} className="rounded-card border border-line bg-surface p-3">
-                  <div className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-fg">
+                <div key={i} id={`wv-msg-${i}`} className="rounded-card border border-line bg-surface p-2.5">
+                  <div className="flex items-center gap-1.5 text-[12px] font-semibold text-fg">
                     <Check size={12} className={m.state === 'applied' ? 'text-cat-entity' : 'text-accent'} />
-                    {m.mode === 'ingest' ? '摄取改动审核' : m.mode === 'chat' ? '会话改动审核' : '修复改动审核'} · {m.files.length} 个文件
+                    {m.mode === 'ingest' ? '摄取改动' : m.mode === 'chat' ? '会话改动' : '修复改动'} · {m.files.length} 文件
                     <span className="ml-auto font-normal text-fg-muted">
                       {m.state === 'applied' ? '已应用' : m.state === 'discarded' ? '已丢弃' : '待审核'}
                     </span>
                   </div>
-                  {m.files.length === 0 ? (
-                    <div className="px-1 py-2 text-[12px] text-fg-muted">agent 没有产生任何文件改动。</div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {m.files.map((f) => <DiffBlock key={f.path} f={f} />)}
-                    </div>
-                  )}
                   {m.state === 'pending' && m.files.length > 0 && (
-                    <div className="mt-2.5 flex gap-2">
-                      <button
-                        onClick={() => onApply(i)}
-                        className="flex-1 rounded-md border border-cat-entity/50 bg-cat-entity/10 py-1.5 text-[12px] font-medium text-cat-entity transition-colors hover:bg-cat-entity/20"
-                      >
-                        应用全部
-                      </button>
-                      <button
-                        onClick={() => onDiscard(i)}
-                        className="flex-1 rounded-md border border-line bg-surface py-1.5 text-[12px] text-fg-muted transition-colors hover:border-cat-concept/50 hover:text-cat-concept"
-                      >
-                        丢弃
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => onOpenReview(m.sessionId)}
+                      className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-accent/50 bg-accent/10 py-1.5 text-[12px] font-medium text-accent transition-colors hover:bg-accent/20"
+                    >
+                      <ExternalLink size={12} />
+                      在右栏审查并应用
+                    </button>
                   )}
                   {m.note && (
-                    <div className={`mt-2 px-1 text-[11.5px] ${m.state === 'applied' ? 'text-cat-entity' : m.state === 'discarded' ? 'text-fg-muted' : 'text-cat-concept'}`}>
+                    <div className={`mt-1.5 px-1 text-[11.5px] ${m.state === 'applied' ? 'text-cat-entity' : m.state === 'discarded' ? 'text-fg-muted' : 'text-cat-concept'}`}>
                       {m.note}
                     </div>
                   )}
                 </div>
               )
-            // assistant：处理详情折叠（仅过程）+ 回答文本直接铺排（pi-web 无卡片包裹）+ usage/时间页脚
-            const toolCount = m.turns.reduce((a, t) => a + t.tools.length, 0)
-            const hasProcess = m.turns.some((t) => t.thinking.trim() || t.tools.length > 0)
+            // assistant：按 turn 时序交错铺排——每轮的过程（thinking/工具/usage）紧跟该轮文本，
+            // 中间叙述（如“先写来源页”）与其工具调用同处，不再汇总成“最终结果 N 条”
             const isLast = i === msgs.length - 1
-            const textTurns = m.turns.filter((t) => t.text.trim())
+            const hasText = m.turns.some((t) => t.text.trim())
+            const lastTextIdx = m.turns.reduce((acc, t, idx) => (t.text.trim() ? idx : acc), -1)
             const lastUsage = [...m.turns].reverse().find((t) => t.usage || t.cost != null)
             return (
-              <div key={i} className="space-y-2.5">
-                {hasProcess && <ProcessDetails turns={m.turns} toolCount={toolCount} />}
-                {textTurns.length > 0 && <ResultBlock turns={textTurns} onLink={onLink} />}
+              <div key={i} id={`wv-msg-${i}`} className="space-y-2.5">
+                {m.turns.map((t, k) => {
+                  const isFinal = k === lastTextIdx
+                  const stepNo = m.turns.slice(0, k).filter((x) => x.text.trim()).length + 1
+                  return (
+                    <div key={k} className="space-y-1.5">
+                      <TurnBlock turn={t} />
+                      {t.text.trim() && (
+                        <div
+                          className={`rounded-card border px-4 py-2.5 ${
+                            isFinal ? 'border-accent/40 bg-accent/5' : 'border-danger/40 bg-danger/10'
+                          }`}
+                        >
+                          <div
+                            className={`mb-1 flex items-center gap-1.5 text-[10.5px] font-medium ${
+                              isFinal ? 'text-accent' : 'text-danger'
+                            }`}
+                          >
+                            {isFinal ? <Sparkles size={11} /> : <Hammer size={11} />}
+                            {isFinal ? '最终结果' : `中间步骤 ${stepNo}`}
+                          </div>
+                          <AssistantBody text={t.text} onLink={onLink} />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
                 {/* 消息页脚：最终轮 usage + 时间戳（pi-web 同款底行） */}
                 {(lastUsage || !busy) && (
                   <div className="flex items-center gap-2 pt-0.5 font-mono text-[10.5px] text-fg-muted">
@@ -332,13 +418,13 @@ export default function ChatWindow({ msgs, busy, onLink, onSave, onApply, onDisc
                     {m.error}
                   </div>
                 )}
-                {busy && isLast && !textTurns.length && !m.error && (
+                {busy && isLast && !hasText && !m.error && (
                   <div className="flex items-center gap-1.5 px-1 text-[12px] text-fg-muted">
                     <Loader2 size={12} className="animate-spin" />
                     正在思考…
                   </div>
                 )}
-                {!busy && m.question && textTurns.length > 0 && (
+                {!busy && m.question && hasText && (
                   <div className="flex items-center gap-2">
                     {m.savedAs ? (
                       <span className="flex items-center gap-1 text-[11px] text-cat-entity">
@@ -360,55 +446,7 @@ export default function ChatWindow({ msgs, busy, onLink, onSave, onApply, onDisc
           })}
         </div>
       )}
-    </div>
-  )
-}
-
-/** 「最终结果 · N 条消息」折叠块（与处理详情对称）：默认展开，内含各 turn 回答卡片 */
-function ResultBlock({ turns, onLink }: { turns: TurnView[]; onLink: (p: WikiPage) => void }) {
-  const [open, setOpen] = useState(true)
-  return (
-    <div>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 text-[12px] font-medium text-fg-secondary transition-colors hover:text-fg"
-      >
-        <ChevronDown size={13} className={`transition-transform ${open ? '' : '-rotate-90'}`} />
-        最终结果 · {turns.length} 条消息
-      </button>
-      {open && (
-        <div className="mt-2 space-y-2.5">
-          {turns.map((t, k) => (
-            <div key={k} className="rounded-card border border-line/70 bg-surface/50 px-4 py-2.5">
-              <AssistantBody text={t.text} onLink={onLink} />
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** 「处理详情 · N 条消息 · M 次工具调用」折叠块（pi-web 同款）：默认展开，可手动收起 */
-function ProcessDetails({ turns, toolCount }: { turns: TurnView[]; toolCount: number }) {
-  const [open, setOpen] = useState(true)
-  const expanded = open
-  return (
-    <div>
-      <button
-        onClick={() => setOpen(!expanded)}
-        className="flex items-center gap-1.5 text-[12px] font-medium text-fg-secondary transition-colors hover:text-fg"
-      >
-        <ChevronDown size={13} className={`transition-transform ${expanded ? '' : '-rotate-90'}`} />
-        处理详情 · {turns.length} 条消息 · {toolCount} 次工具调用
-      </button>
-      {expanded && (
-        <div className="mt-2 space-y-3">
-          {turns.map((t, i) => (
-            <TurnBlock key={i} turn={t} />
-          ))}
-        </div>
-      )}
+      </div>
     </div>
   )
 }

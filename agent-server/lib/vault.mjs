@@ -1,14 +1,11 @@
-// vault.mjs — llmwiki 项目路径解析与页面上下文拼装（不依赖前端快照，直接读文件系统）
+// vault.mjs — 知识库路径解析与页面上下文拼装（不依赖前端快照，直接读文件系统）
+// 多 vault 版本：所有函数接受 vaultPath 参数，不再依赖模块级 VAULT 常量。
 import { readFileSync, existsSync } from 'node:fs'
-import { join, dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join, resolve } from 'node:path'
+import { getVaultPath, getDefaultVaultId } from './registry.mjs'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-
-/** llmwiki 项目根（含 raw/wiki/output），可用 WIKI_VAULT 环境变量覆盖 */
-export const VAULT = process.env.WIKI_VAULT
-  ? resolve(process.env.WIKI_VAULT)
-  : join(__dirname, '..', '..', 'llmwiki')
+/** 向后兼容：默认 vault 路径（仅用于启动日志等无请求上下文的场景） */
+export const DEFAULT_VAULT = getVaultPath(getDefaultVaultId()) || resolve(join(import.meta.dirname || '.', '..', '..', 'llmwiki'))
 
 /** viewer 页面 id（category/filename.md）→ vault 内相对路径 */
 const CAT_DIR = {
@@ -32,11 +29,11 @@ export function pageIdToRelPath(pageId) {
 const MAX_CONTEXT_CHARS = 16000
 
 /** 当前浏览页的上下文块（供注入 prompt）；页面不存在时返回空串 */
-export function pageContextBlock(pageId) {
+export function pageContextBlock(vaultPath, pageId) {
   if (!pageId) return ''
   const rel = pageIdToRelPath(pageId)
   if (!rel) return ''
-  const file = join(VAULT, rel)
+  const file = join(vaultPath, rel)
   if (!existsSync(file)) return ''
   let content = readFileSync(file, 'utf8')
   const truncated = content.length > MAX_CONTEXT_CHARS
@@ -45,9 +42,9 @@ export function pageContextBlock(pageId) {
 }
 
 /** 直接读取 vault 内任意相对路径文本（供摄取等模式使用），越界/不存在返回 null */
-export function readVaultFile(rel) {
-  const file = resolve(join(VAULT, rel))
-  if (!file.startsWith(resolve(VAULT))) return null // 防目录穿越
+export function readVaultFile(vaultPath, rel) {
+  const file = resolve(join(vaultPath, rel))
+  if (!file.startsWith(resolve(vaultPath))) return null // 防目录穿越
   if (!existsSync(file)) return null
   return readFileSync(file, 'utf8')
 }
