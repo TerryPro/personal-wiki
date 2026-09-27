@@ -60,3 +60,6 @@ agent-server/tools.json
 
 # ——— 运行时生成的数据快照（sync-data.mjs 重建）———
 wiki-viewer/public/data/
+
+# ——— IDE 生成的仓库百科缓存 ———
+.qoder/repowiki/
