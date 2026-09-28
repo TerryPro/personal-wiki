@@ -26,10 +26,12 @@ cd f:\WIKI\LLMWIKI\wiki-viewer;  npm run dev     # :5173（dev 自带 sync 前�
 ## 3. 摄取（ingest）
 
 - 入口：工作模式聊天输入 `/skill:second-brain-ingest <文件或批次说明>`；或 知识库 tab「待消化原料」逐条点「摄取」。
+- **批量**：知识面板勾选多个文件 →「批量摄取 (N)」（内部拼成 skill 命令发进新会话）；或聊天直发 `/skill:second-brain-ingest 003-005` / 文件名清单。单会话顺序摄取多文件（暂存 target 记触发消息摘要便于溯源）；面板「摄取」按钮用于单文件精确控制。
 - **分批**：每批 ≤ 8–10 篇（按主题分组），一次性全摄取会爆上下文/输出且 diff 不可审。
 - 过程：agent 写 wiki/ → 全部重定向到 `.staging/<sid>/` → 回合结束右栏自动开「审查」。
 - **审核**：右栏审查 tab → 逐文件 ✓应用/✕撤销，或 footer 应用全部/丢弃 → apply 落盘 + sync。
-- 消化标记：raw 文件被某 source 页 `sources:` 引用即视为已消化（队列自动划掉）。
+- 消化标记（双通道）：自动 = raw 文件被某 source 页 `sources:` 引用；人工 = raw 文件 frontmatter `ingested: true`（知识面板队列「✓ 标记」或阅读模式 raw 页横幅「标记已消化」，可撤销）。命中任一即已消化，队列自动划掉。
+- 人工标记适用：agent 把 `sources:` 写错不想重跑、或某些 raw 文件本就不打算摄取；接口 `POST /agent/raw/mark`，只改这一个字段。
 
 ## 4. 查询 / 综合 / 成品
 

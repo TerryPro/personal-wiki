@@ -14,7 +14,7 @@
 | 工作（工作模式） | `AiMode` / `mode='ai'` | AI 工作区：会话 + 知识库管理；分段标签用 2 字「工作」，散文用「工作模式」 |
 | 顶栏 | `header` / TopBar | 每个模式顶部的 46px 工具条 |
 | 左栏 | 左 `aside` | 全高首列：品牌区 + tab（工作模式）/ 分类导航（阅读） |
-| 右栏 | 右 `aside` | 工作模式的 `[审查 \| 预览]` 统一容器 |
+| 右栏 | 右 `aside` | 工作模式的 `[知识 \| 文档 \| 审查]` 统一容器 |
 | 聊天列 | 中央 `main` | 工作模式的消息流 + 输入区 |
 | 对话索引 | `SessionIndex` | 会话轮次快速索引（pi-map 风格），置于聊天列**左侧** |
 | minimap | `SessionIndex mode='mini'` | 对话索引的**收缩态**：窄条小方块 |
@@ -22,7 +22,7 @@
 | 审查面板 | `ReviewPanel` | 右栏 tab：暂存 diff 的文件清单 + 着色 diff + 应用/丢弃 |
 | 预览面板 | `PreviewPanel` | 右栏 tab：vault 文件渲染/源码查看（填充型） |
 | 暂存 / 审核门 | `.staging/`、staging gate | agent 写入先落暂存区，人工审 diff 后才落盘 |
-| 收件箱 | `RawInbox` | 工作模式「知识库」tab 顶部：上传/URL 剪藏入 `raw/` |
+| 收件箱 | `RawInbox` | 工作模式右栏「知识」tab 顶部：上传/URL 剪藏入 `raw/` |
 | 知识库 / vault | `VaultEntry` | 一个独立知识库（raw/wiki/output），注册于 `vaults.json` |
 | 参与式侧栏 | participatory sidebar | 挤占布局的并排侧栏（**优于**悬浮抽屉/遮罩） |
 | 免打扰 | zen | 阅读模式隐藏左右栏的专注态（`.` 切换） |
@@ -51,14 +51,14 @@
 ┌ 顶栏(46px) ─────────────────────────────────────────────┐
 ├────────┬───────────────────────────────────┬─────────────┤
 │ 左栏    │ 对话索引 │  聊天列 main             │ 右栏         │
-│ aside  │ Session  │  ChatWindow            │ [审查|预览]   │
-│ w-side │ Index    │  ChatInput             │ 拖拽 340-760  │
-│        │ mini/full│                        │             │
+│ aside  │ Session  │  ChatWindow            │ [知识|文档|  │
+│ w-side │ Index    │  ChatInput             │  审查]       │
+│        │ mini/full│                        │ 拖拽 340-760  │
 └────────┴───────────────────────────────────┴─────────────┘
 ```
-- 左栏为**全高首列**：品牌区 `Brand` 直达窗口顶，下方四 tab（会话/知识库/文件/设置）。
+- 左栏为**全高首列**：品牌区 `Brand` 直达窗口顶，下方三 tab（会话/文件/设置）。
 - 对话索引在聊天列**左侧**（见 §5）。
-- 右栏为 `[审查 | 预览]` tab 统一容器（见 §6）。
+- 右栏为 `[知识 | 文档 | 审查]` tab 统一容器（见 §6）。
 
 ---
 
@@ -103,16 +103,17 @@
 
 ---
 
-## 6. 右栏（焦点对象工作区：文档 / 审查）
+## 6. 右栏（焦点对象工作区：知识 / 文档 / 审查）
 
-**定位**：右栏展示“当前正在处理的对象”的详情与操作——对象是**文件**→文档 tab；对象是**一批改动**→审查 tab。与左栏（列表/导航）、聊天（对话）职责正交。暂不含人工编辑（预留）。
+**定位**：右栏展示“当前正在处理的对象”的详情与操作——对象是**整个 vault**→知识 tab；对象是**文件**→文档 tab；对象是**一批改动**→审查 tab。与左栏（列表/导航）、聊天（对话）职责正交。暂不含人工编辑（预留）。
 
-- **整体开关**：TopBar 右簇 `PanelRight` 按钮控制右栏开/关（持久化 `wv-panel-r-ai`）；右栏是一等公民列，不再“仅在有内容时出现”。
+- **整体开关**：TopBar 右簇 `PanelRight` 按钮控制右栏开/关（持久化 `wv-panel-r-ai`）；右栏是一等公民列，不再“仅在有内容时出现”。离线时右栏整体隐藏。
 - 统一容器 `aside`，宽度拖拽 `340–760px`，持久化 `wv-right-w`；拖拽柄 = 7px 隐形热区 + 居中 2px 可见 accent 线（hover/active 加深），线细但颜色醒目。
-- 顶部 tab：`[文档 | 审查(n)]`，**永远可点**（不 disabled）；无内容时显示引导空态而非禁用。审查 tab 带待审数徽标。tab 选择持久化 `wv-right-tab`。
+- 顶部 tab：`[知识 | 文档 | 审查(n)]`，**永远可点**（不 disabled）；无内容时显示引导空态而非禁用。审查 tab 徽标 n = **待审文件总数**（跨会话求和），悬停提示补充会话数（如「1 个待审会话 · 共 37 个文件待审」）。tab 选择持久化 `wv-right-tab`（默认文档）。
 - **共享 chrome `PanelFrame`**：头 `h-9`（icon + title + meta + actions + close）+ body 填充 + 可选 footer。PreviewPanel/ReviewPanel 均套用它，风格统一。
+- **知识 tab（KnowledgePanel）**：vault 总览与入库管理——收件箱（拖拽上传/URL 剪藏）、待消化原料队列（逐个发起摄取，或「标记已消化」文字按钮人工标记；队尾附「已消化 N」折叠清单，自动消化标注来源页、人工标记带徽标）、健康问题（孤立页/断链/陈旧页，一键发起 lint 修复）、暂存待审列表（点击切到审查 tab）。根节点 `flex h-full flex-col overflow-y-auto` 自滚动，不套 PanelFrame。
 - **文档 tab（PreviewPanel）**：头 = FileText + path + size；actions = 渲染/源码切换；空态引导“在左栏「文件」中选择文件”。
-- **审查 tab（ReviewPanel）**：头 = FileDiff + “改动审查” + meta(模式·文件数) + 多会话选择器（pending>1 时）；body = 左文件清单 + 右着色 diff；footer = 应用全部/丢弃；空态“没有待审改动”。mode 标签：ingest=摄取 / lint=修复 / chat=会话 / edit=编辑(预留)。
+- **审查 tab（ReviewPanel）**：头 = FileDiff + “改动审查 · <模式> <来源>”（ingest 来源 = raw 文件路径，如 `raw/002_夏本纪.md`；重启恢复的旧暂存无 meta 时显示「(重启恢复)」）+ meta(文件数) + 多会话选择器（pending>1 时，选项含来源短名）；body = 左文件清单 + 右着色 diff；footer = 应用全部/丢弃；空态“没有待审改动”。mode 标签：ingest=摄取 / lint=修复 / chat=会话 / edit=编辑(预留)。暂存会话元信息（mode/target/createdAt）持久化为 `.staging/<sid>.meta.json` 兄弟文件（目录外，避免被 walkStaged 收为暂存对象），apply/discard 清理时同删。
 - 待审 diff 到达 / 挂载发现未 dismissed pending / toast 点击 → 自动设 tab=审查 + 打开右栏；用户主动 X 关闭记入 dismissed，自动打开跳过 dismissed。
 
 ---

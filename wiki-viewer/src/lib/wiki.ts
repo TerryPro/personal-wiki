@@ -24,7 +24,7 @@ const EMPTY_DATA: WikiData = {
   vaultId: '',
   pages: [],
   brokenLinks: [],
-  digestion: { total: 0, digested: 0, undigestedFiles: [] },
+  digestion: { total: 0, digested: 0, manual: 0, undigestedFiles: [] },
   outputAttachments: [],
 }
 
@@ -33,8 +33,8 @@ export let data: WikiData = EMPTY_DATA
 export let pages: WikiPage[] = []
 /** 断链清单（构建期计算，已按引用数降序） */
 export let brokenLinks: BrokenLink[] = []
-/** raw/ 消化进度（构建期计算） */
-export let digestion: { total: number; digested: number; undigestedFiles: string[] } = { total: 0, digested: 0, undigestedFiles: [] }
+/** raw/ 消化进度（构建期计算；manual = 仅靠人工标记消化的数量） */
+export let digestion: { total: number; digested: number; manual: number; undigestedFiles: string[] } = { total: 0, digested: 0, manual: 0, undigestedFiles: [] }
 
 /* ————— 索引（vault 切换时重建） ————— */
 
@@ -81,7 +81,9 @@ export async function loadVault(id: string): Promise<void> {
   data = (await res.json()) as WikiData
   pages = data.pages
   brokenLinks = data.brokenLinks ?? []
-  digestion = data.digestion ?? { total: 0, digested: 0, undigestedFiles: [] }
+  // 旧快照无 manual 字段，逐字段归一化兜底
+  const d = data.digestion
+  digestion = { total: d?.total ?? 0, digested: d?.digested ?? 0, manual: d?.manual ?? 0, undigestedFiles: d?.undigestedFiles ?? [] }
   rebuildIndexes()
   notifyData()
 }

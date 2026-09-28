@@ -166,7 +166,7 @@ export async function runStream(
           return { ...t, tools }
         })
     } else if (e.type === 'diffs') {
-      set({ msgs: [...state.msgs, { role: 'diffs', sessionId: e.sessionId, mode: e.mode, files: e.files, state: 'pending' }] })
+      set({ msgs: [...state.msgs, { role: 'diffs', sessionId: e.sessionId, mode: e.mode, target: e.target, files: e.files, state: 'pending' }] })
       diffsListeners.forEach((fn) => fn(e.sessionId, e.files.length))
     } else if (e.type === 'error') patchAssistant((m) => ({ ...m, error: e.message }))
   }

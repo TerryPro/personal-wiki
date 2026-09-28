@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, CircleDashed, FileArchive, Link2, Loader2, RefreshCw, Sparkles, Upload, UserX } from 'lucide-react'
-import { brokenLinks, digestion, healthReport } from '@/lib/wiki'
-import { clipUrl, listStagingSessions, uploadRawFiles, type StagingSessionInfo } from '@/lib/agent'
-import type { AgentTask } from '@/types'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { AlertTriangle, ChevronRight, CircleDashed, FileArchive, Link2, Loader2, RefreshCw, Sparkles, Upload, UserX } from 'lucide-react'
+import { brokenLinks, digestion, getPage, getDataVersion, healthReport, loadVault, pages, subscribeData, data } from '@/lib/wiki'
+import { clipUrl, listStagingSessions, markRawIngested, uploadRawFiles, type StagingSessionInfo } from '@/lib/agent'
+import type { AgentTask, WikiPage } from '@/types'
 
 interface Props {
   onStartTask: (task: AgentTask) => void
   /** 查看暂存待审会话（在聊天区恢复 diff 审核卡） */
   onShowStaging: (id: string, mode: string) => void
+  /** 跳转阅读模式打开页面（已消化清单的文件名/来源页） */
+  onOpenPage?: (p: WikiPage) => void
   busy: boolean
   online: boolean | null
 }
@@ -148,7 +150,9 @@ function FixButton({ n, onClick, disabled }: { n: number; onClick: () => void; d
   )
 }
 
-export default function KnowledgePanel({ onStartTask, onShowStaging, busy, online }: Props) {
+export default function KnowledgePanel({ onStartTask, onShowStaging, onOpenPage, busy, online }: Props) {
+  // 订阅快照版本：apply/标记等写入重跑 sync 后 loadVault 更新单例，本面板据此重渲染（队列/已消化清单实时）
+  const dataVersion = useSyncExternalStore(subscribeData, getDataVersion)
   const health = healthReport()
   const [staging, setStaging] = useState<StagingSessionInfo[]>([])
 
@@ -166,10 +170,63 @@ export default function KnowledgePanel({ onStartTask, onShowStaging, busy, onlin
 
   const disabled = busy || online !== true
 
-  /** 收件箱写入成功：server 已重跑 sync，稍延后整页刷新以加载新快照 */
+  /** 收件箱写入 / 人工标记成功：server 已在响应前重跑 sync，重拉快照刷新队列与已消化清单（不整页 reload，保住对话视图） */
   const handleAdded = useCallback(() => {
-    setTimeout(() => window.location.reload(), 1400)
+    void loadVault(data.vaultId)
   }, [])
+
+  // 人工标记进行中的文件（防双击）
+  const [marking, setMarking] = useState<string | null>(null)
+  const handleMark = async (f: string) => {
+    if (marking) return
+    setMarking(f)
+    try {
+      await markRawIngested(f, true)
+      handleAdded()
+    } catch {
+      setMarking(null)
+    }
+  }
+
+  // 批量摄取勾选：apply/标记后快照刷新，剔除已不在待消化队列的项
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    setSelected((s) => {
+      if (!s.size) return s
+      const alive = new Set(digestion.undigestedFiles)
+      const next = new Set([...s].filter((f) => alive.has(f)))
+      return next.size === s.size ? s : next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataVersion])
+  const toggleSel = (f: string) =>
+    setSelected((s) => {
+      const n = new Set(s)
+      if (n.has(f)) n.delete(f)
+      else n.add(f)
+      return n
+    })
+
+  // 已消化清单（折叠）：自动 = sources 反查命中（标注来源页），人工 = ingested: true 兜底；行内可跳转
+  const [showDigested, setShowDigested] = useState(false)
+  const digestedItems = useMemo(
+    () =>
+      pages
+        .filter((p) => p.category === 'raw' && ((p.digestedBy?.length ?? 0) > 0 || p.ingested === true))
+        .map((p) => {
+          const by = p.digestedBy ?? []
+          return {
+            page: p,
+            name: p.file.split('/').pop() ?? p.title,
+            sources: by.map((id) => getPage(id)).filter((x): x is WikiPage => !!x),
+            manual: by.length === 0,
+          }
+        })
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dataVersion],
+  )
+  const manualCount = digestedItems.filter((d) => d.manual).length
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -179,27 +236,128 @@ export default function KnowledgePanel({ onStartTask, onShowStaging, busy, onlin
       </Section>
 
       {/* 待消化原料 */}
-      <Section title={`待消化原料 · ${digestion.digested}/${digestion.total}`}>
+      <Section title={`待消化原料 · ${digestion.digested}/${digestion.total}${digestion.manual ? `（含人工标记 ${digestion.manual}）` : ''}`}>
         {digestion.undigestedFiles.length === 0 ? (
           <Empty text="全部原料已消化 ✓" />
         ) : (
-          <ul className="space-y-1">
-            {digestion.undigestedFiles.map((f) => (
-              <li key={f} className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-surface-raised">
-                <FileArchive size={12} className="shrink-0" style={{ color: 'hsl(var(--cat-raw))' }} />
-                <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-secondary" title={f}>
-                  {f}
-                </span>
-                <button
-                  onClick={() => onStartTask({ type: 'ingest', rawFile: f, title: f })}
-                  disabled={disabled}
-                  className="shrink-0 rounded border border-accent/50 bg-accent/10 px-1.5 py-px text-[10.5px] font-medium text-accent hover:bg-accent/20 disabled:opacity-40"
-                >
-                  摄取
-                </button>
-              </li>
-            ))}
-          </ul>
+          <>
+            {/* 批量操作栏：全选 + 勾选计数 + 批量摄取按钮 */}
+            <div className="mb-1 flex items-center gap-1.5 px-1.5">
+              <input
+                type="checkbox"
+                checked={selected.size > 0 && selected.size === digestion.undigestedFiles.length}
+                onChange={(e) => setSelected(e.target.checked ? new Set(digestion.undigestedFiles) : new Set())}
+                disabled={disabled}
+                title="全选 / 取消全选"
+                className="h-3 w-3 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                style={{ accentColor: 'hsl(var(--accent))' }}
+              />
+              <span className="min-w-0 truncate text-[10.5px] text-fg-muted">
+                {selected.size
+                  ? `已选 ${selected.size} 篇${selected.size > 10 ? '（建议每批 ≤ 8–10 篇）' : ''}`
+                  : '勾选文件可批量摄取'}
+              </span>
+              <button
+                onClick={() => {
+                  const files = digestion.undigestedFiles.filter((f) => selected.has(f))
+                  if (!files.length) return
+                  setSelected(new Set())
+                  onStartTask({ type: 'batch-ingest', rawFiles: files })
+                }}
+                disabled={disabled || selected.size === 0}
+                title="发起批量摄取：新建会话单会话顺序处理多文件，写入同经审核门"
+                className="ml-auto shrink-0 rounded border border-accent/50 bg-accent/10 px-1.5 py-px text-[10.5px] font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-40"
+              >
+                批量摄取{selected.size ? ` (${selected.size})` : ''}
+              </button>
+            </div>
+            <ul className="space-y-1">
+              {digestion.undigestedFiles.map((f) => (
+                <li key={f} className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-surface-raised">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(f)}
+                    onChange={() => toggleSel(f)}
+                    disabled={disabled}
+                    title="勾选加入批量摄取"
+                    className="h-3 w-3 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                    style={{ accentColor: 'hsl(var(--accent))' }}
+                  />
+                  <FileArchive size={12} className="shrink-0" style={{ color: 'hsl(var(--cat-raw))' }} />
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-secondary" title={f}>
+                    {f}
+                  </span>
+                  <button
+                    onClick={() => handleMark(f)}
+                    disabled={disabled || marking !== null}
+                    title="人工标记已消化（置 ingested: true）——适用于 sources 元数据写错或无需摄取的文件"
+                    className="shrink-0 rounded border border-line bg-surface px-1.5 py-px text-[10.5px] text-fg-muted transition-colors hover:border-cat-entity/50 hover:text-cat-entity disabled:opacity-40"
+                  >
+                    {marking === f ? '标记中…' : '标记已消化'}
+                  </button>
+                  <button
+                    onClick={() => onStartTask({ type: 'ingest', rawFile: f, title: f })}
+                    disabled={disabled}
+                    className="shrink-0 rounded border border-accent/50 bg-accent/10 px-1.5 py-px text-[10.5px] font-medium text-accent hover:bg-accent/20 disabled:opacity-40"
+                  >
+                    摄取
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        {/* 批量入口提示：面板勾选或聊天 skill 命令 */}
+        <p className="mt-2 text-[10.5px] leading-4 text-fg-muted">
+          批量摄取：勾选上方文件后点「批量摄取」，或聊天发送{' '}
+          <span className="font-mono text-fg-secondary">/skill:second-brain-ingest 文件名或范围</span>，单会话顺序处理多文件。
+        </p>
+        {/* 已消化清单（默认折叠）：自动消化标注来源页，人工标记带徽标 */}
+        {digestedItems.length > 0 && (
+          <div className="mt-2.5 border-t border-line pt-2">
+            <button
+              onClick={() => setShowDigested((v) => !v)}
+              className="flex w-full items-center gap-1 text-left text-[10.5px] text-fg-muted transition-colors hover:text-accent"
+              title="展开/收起已消化清单"
+            >
+              <ChevronRight size={11} className={`shrink-0 transition-transform ${showDigested ? 'rotate-90' : ''}`} />
+              已消化 {digestedItems.length}
+              <span className="opacity-70">（自动 {digestedItems.length - manualCount}{manualCount > 0 && ` · 人工 ${manualCount}`}）</span>
+            </button>
+            {showDigested && (
+              <ul className="mt-1 space-y-1">
+                {digestedItems.map((d) => (
+                  <li key={d.name} className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-surface-raised">
+                    <FileArchive size={12} className="shrink-0 opacity-70" style={{ color: 'hsl(var(--cat-raw))' }} />
+                    <button
+                      onClick={() => onOpenPage?.(d.page)}
+                      className="min-w-0 flex-1 truncate text-left font-mono text-[11px] text-fg-secondary transition-colors hover:text-accent"
+                      title={`打开 raw 页：${d.name}`}
+                    >
+                      {d.name}
+                    </button>
+                    {d.manual ? (
+                      <span
+                        className="shrink-0 rounded border border-line bg-ink-soft px-1 py-px text-[9.5px] text-fg-muted"
+                        title="人工标记 ingested: true；打开该 raw 页可撤销"
+                      >
+                        人工标记
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => d.sources[0] && onOpenPage?.(d.sources[0])}
+                        className="min-w-0 shrink-0 truncate text-[10px] text-fg-muted transition-colors hover:text-accent"
+                        title={`消化为来源页：${d.sources.map((s) => s.title).join('、')}`}
+                      >
+                        → {d.sources[0]?.title}
+                        {d.sources.length > 1 && ` +${d.sources.length - 1}`}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </Section>
 

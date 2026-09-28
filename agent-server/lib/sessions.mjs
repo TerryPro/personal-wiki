@@ -150,7 +150,7 @@ function applyThinking(entry, level) {
 }
 
 /** 取得（或创建/恢复）指定模式的会话；mode 不匹配时重建（同一 JSONL 文件不可双实例打开） */
-export async function obtainSession({ sessionId = null, mode = 'query', stagingSess = null, model = null, thinkingLevel = null, vaultId = null }) {
+export async function obtainSession({ sessionId = null, mode = 'query', stagingSess = null, stagingTarget = null, model = null, thinkingLevel = null, vaultId = null }) {
   const resolvedVaultId = vaultId || getDefaultVaultId()
   const vaultPath = getVaultPath(resolvedVaultId)
   if (!vaultPath) throw new Error(`vault not found: ${resolvedVaultId}`)
@@ -190,9 +190,9 @@ export async function obtainSession({ sessionId = null, mode = 'query', stagingS
     appendSystemPromptOverride: (base) =>
       [...base, GUIDES[mode], SKILL_INVOCATION_NOTE, skillsPrompt].filter(Boolean),
   }
-  // 审核门：ingest/lint 用外部传入的暂存会话；query 按会话懒创建（首次写入才实际建）
+  // 审核门：ingest/lint 用外部传入的暂存会话；query 按会话懒创建（首次写入才实际建），target 取触发消息摘要便于溯源
   const stagingHolder = { current: stagingSess ?? null }
-  stagingHolder.get = () => (stagingHolder.current ??= createSession(vaultPath, 'chat', '会话改动'))
+  stagingHolder.get = () => (stagingHolder.current ??= createSession(vaultPath, 'chat', stagingTarget || '会话改动'))
   loaderOptions.extensionFactories = [stagingExtension(stagingHolder, vaultPath)]
   const loader = new DefaultResourceLoader(loaderOptions)
   await loader.reload()

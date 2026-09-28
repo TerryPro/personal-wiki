@@ -36,7 +36,7 @@ import {
   setModeTools,
   sessionUsage,
 } from './lib/sessions.mjs'
-import { saveUploadedFiles, clipUrl } from './lib/inbox.mjs'
+import { saveUploadedFiles, clipUrl, markIngested } from './lib/inbox.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.AGENT_PORT || 8787)
@@ -239,6 +239,8 @@ async function handleChat(req, res) {
     entry = await obtainSession({
       sessionId: body?.sessionId || null,
       mode: 'query',
+      // 聊天懒建暂存会话的 target 取触发消息摘要（如 /skill:second-brain-ingest 003-005），批量摄取后可溯源
+      stagingTarget: String(body?.message || '').slice(0, 60) || null,
       model: body?.model || null,
       thinkingLevel: body?.thinkingLevel || null,
       vaultId: vault.id,
@@ -317,7 +319,7 @@ async function handleTask(req, res) {
     {
       onAfterPrompt: () => {
         const diffs = collectDiffs(staging.id) ?? []
-        sse(res, 'diffs', { sessionId: staging.id, mode, files: diffs })
+        sse(res, 'diffs', { sessionId: staging.id, mode, target: staging.target, files: diffs })
       },
     },
   )
@@ -615,7 +617,7 @@ async function handleNewVault(req, res) {
   }
 }
 
-/* ————— raw/ 收件箱：本地上传 + URL 剪藏（不走审核门，server 直接落盘） ————— */
+/* ————— raw/ 收件箱：本地上传 + URL 剪藏 + 人工消化标记（不走审核门，server 直接落盘） ————— */
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024 // 单文件 20MB 上限
 
@@ -653,6 +655,26 @@ async function handleRawClip(req, res) {
   }
 }
 
+/** 人工消化标记：只改 raw 文件 frontmatter 的 ingested 字段（raw/ 唯一人工写入例外） */
+async function handleRawMark(req, res) {
+  const body = await readBody(req).catch(() => null)
+  const vault = resolveVaultId(body?.vaultId)
+  if (!vault) return json(res, 400, { error: `vault not found: ${body?.vaultId}` })
+  // 与 ingest 同样兼容裸文件名：自动补 raw/ 前缀
+  const fname = String(body?.file || '').trim()
+  const rel = toVaultRel(vault.path, fname.startsWith('raw/') ? fname : `raw/${fname}`)
+  if (!rel) return json(res, 403, { error: '路径越出 vault 根' })
+  if (!rel.startsWith('raw/') || !rel.endsWith('.md')) return json(res, 400, { error: `仅支持 raw/ 下的 .md 文件：${rel}` })
+  if (!existsSync(join(vault.path, rel))) return json(res, 404, { error: `文件不存在：${rel}` })
+  try {
+    const r = markIngested(vault.path, rel, body?.ingested === true || body?.ingested === 'true')
+    const synced = runSync()
+    json(res, 200, { ok: true, ...r, synced })
+  } catch (e) {
+    json(res, 400, { error: String(e?.message || e) })
+  }
+}
+
 /* ————— HTTP server ————— */
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`)
@@ -670,9 +692,10 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/agent/vaults') return handleVaults(res)
     if (req.method === 'POST' && p === '/agent/vaults/new') return await handleNewVault(req, res)
 
-    // raw/ 收件箱：本地上传 + URL 剪藏
+    // raw/ 收件箱：本地上传 + URL 剪藏 + 人工消化标记
     if (req.method === 'POST' && p === '/agent/raw/upload') return await handleRawUpload(req, res)
     if (req.method === 'POST' && p === '/agent/raw/clip') return await handleRawClip(req, res)
+    if (req.method === 'POST' && p === '/agent/raw/mark') return await handleRawMark(req, res)
 
     // 会话管理
     if (req.method === 'GET' && p === '/agent/sessions')

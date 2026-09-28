@@ -24,7 +24,7 @@ function unquote(s) {
 
 function parseFrontmatter(raw) {
   const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/)
-  if (!m) return { fm: {}, body: raw }
+  if (!m) return { fm: {}, body: raw, fmRaw: '' }
   const fm = {}
   for (const line of m[1].split(/\r?\n/)) {
     const kv = line.match(/^(\w+):\s*(.*)$/)
@@ -37,7 +37,8 @@ function parseFrontmatter(raw) {
       fm[key] = unquote(val)
     }
   }
-  return { fm, body: raw.slice(m[0].length) }
+  // fmRaw = frontmatter 原文块（含起止 ---），供源码视图忠实展示白名单之外的自定义字段
+  return { fm, body: raw.slice(m[0].length), fmRaw: m[0] }
 }
 
 function walk(dir) {
@@ -53,7 +54,7 @@ function walk(dir) {
 
 function toPage(file, catKey, catLabel, slugDir) {
   const raw = readFileSync(file, 'utf8')
-  const { fm, body } = parseFrontmatter(raw)
+  const { fm, body, fmRaw } = parseFrontmatter(raw)
   const titleMatch = body.match(/^# (.+)$/m)
   const title = (titleMatch ? titleMatch[1] : basename(file, '.md')).trim()
   // 先整体匹配 [[...]] 再拆分，兼容表格单元格里转义写的 \|（与 Obsidian 渲染前归一化一致）
@@ -82,6 +83,7 @@ function toPage(file, catKey, catLabel, slugDir) {
     links: [...new Set(links)],
     excerpt: plain.replace(/\s+/g, ' ').trim().slice(0, 160),
     content: body,
+    fmRaw,
   }
 }
 
@@ -94,6 +96,8 @@ function toAssetPage(file, catKey, catLabel, slugDir) {
   p.links = []
   p.size = st.size
   p.mtime = st.mtime.toISOString()
+  // raw 页：带出人工消化标记 ingested（由 /agent/raw/mark 写入，sources 反查落空时兜底）
+  if (catKey === 'raw') p.ingested = parseFrontmatter(readFileSync(file, 'utf8')).fm.ingested === 'true'
   return p
 }
 
@@ -144,7 +148,7 @@ function syncOneVault(vaultRoot, vaultId) {
     }
   }
 
-  // 消化状态：raw 文件 ←→ source 页 frontmatter sources 反查
+  // 消化状态：自动 = raw 文件名 ←→ source 页 frontmatter sources 反查；人工 = raw 页 ingested: true 兜底
   for (const rp of pages) {
     if (rp.category !== 'raw') continue
     const fname = rp.file.split('/').pop()
@@ -153,10 +157,12 @@ function syncOneVault(vaultRoot, vaultId) {
       .map((p) => p.id)
   }
   const rawPages = pages.filter((p) => p.category === 'raw')
+  const autoDigested = (p) => !!(p.digestedBy && p.digestedBy.length > 0)
   const digestion = {
     total: rawPages.length,
-    digested: rawPages.filter((p) => p.digestedBy && p.digestedBy.length > 0).length,
-    undigestedFiles: rawPages.filter((p) => !p.digestedBy || !p.digestedBy.length).map((p) => p.file.split('/').pop()),
+    digested: rawPages.filter((p) => autoDigested(p) || p.ingested).length,
+    manual: rawPages.filter((p) => !autoDigested(p) && p.ingested).length,
+    undigestedFiles: rawPages.filter((p) => !autoDigested(p) && !p.ingested).map((p) => p.file.split('/').pop()),
   }
 
   // 断链（target 既不是标题也不是 slug）——仅限 wiki 页面

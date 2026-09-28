@@ -208,7 +208,7 @@ export default function Sidebar({ activeId, query, onQuery, onOpen, onHome }: Pr
                 {g.items.map((p) => {
                   const Icon = CATEGORY_META[p.category].icon
                   const isActive = p.id === activeId
-                  const digested = p.category === 'raw' && (p.digestedBy?.length ?? 0) > 0
+                  const digested = p.category === 'raw' && ((p.digestedBy?.length ?? 0) > 0 || p.ingested === true)
                   return (
                   <button key={p.id} onClick={() => onOpen(p)} title={p.title} className={`nav-item ${isActive ? 'active' : ''}`}>
                     <Icon size={13} strokeWidth={1.9} className={isActive ? 'shrink-0 text-accent' : 'shrink-0 text-fg-muted/70'} />

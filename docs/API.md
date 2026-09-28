@@ -22,6 +22,7 @@ Base: `http://127.0.0.1:8787`（仅 localhost）。dev 下经 vite proxy `/agent
 |---|---|---|
 | POST | `/agent/raw/upload` | body `{vaultId, files:[{name, contentBase64}]}`；.md/.txt→raw/，图片→raw/assets/；重名加 -N；单文件≤20MB |
 | POST | `/agent/raw/clip` | body `{vaultId, url}` → fetch+turndown 转 Markdown 存 `raw/<slug>.md`（带 source/title/clipped frontmatter） |
+| POST | `/agent/raw/mark` | body `{vaultId, file, ingested}` → 人工消化标记：只改 raw 文件 frontmatter 的 `ingested` 字段（true/false）后重跑 sync。file 兼容裸文件名（自动补 raw/ 前缀）；仅限 raw/ 下 .md；无 frontmatter 块→400，越界路径→403，不存在→404 |
 
 ## 会话（SSE 流）
 

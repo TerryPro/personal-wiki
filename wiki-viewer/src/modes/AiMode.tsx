@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
-import { Bot, FolderTree, HeartPulse, ListOrdered, Moon, PanelLeft, PanelRight, Settings2, Sun } from 'lucide-react'
+import { Bot, FolderTree, ListOrdered, Moon, PanelLeft, PanelRight, Settings2, Sun } from 'lucide-react'
 import ModeSwitch from '@/components/ModeSwitch'
 import VaultSwitcher from '@/components/VaultSwitcher'
 import Brand from '@/components/Brand'
@@ -12,6 +12,7 @@ import PreviewPanel from '@/components/ai/PreviewPanel'
 import ReviewPanel from '@/components/ai/ReviewPanel'
 import AgentInfo from '@/components/ai/AgentInfo'
 import SessionIndex, { type IndexMode } from '@/components/ai/SessionIndex'
+import { loadVault } from '@/lib/wiki'
 import SettingsPanel, { type ModelChoice } from '@/components/ai/SettingsPanel'
 import ChatSettings, { CHAT_PADY, DEFAULT_CHAT_CFG, type ChatCfg } from '@/components/ai/ChatSettings'
 import {
@@ -70,11 +71,11 @@ interface Props {
   onReviewRequestConsumed: () => void
 }
 
-type LeftTab = 'sessions' | 'files' | 'knowledge' | 'settings'
+type LeftTab = 'sessions' | 'files' | 'settings'
+type RightTab = 'knowledge' | 'preview' | 'review'
 
 const TABS: { key: LeftTab; label: string; icon: typeof Bot }[] = [
   { key: 'sessions', label: '会话', icon: Bot },
-  { key: 'knowledge', label: '知识库', icon: HeartPulse },
   { key: 'files', label: '文件', icon: FolderTree },
   { key: 'settings', label: '设置', icon: Settings2 },
 ]
@@ -91,10 +92,11 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   const [leftOpen, setLeftOpen] = useState(() => localStorage.getItem('wv-panel-l-ai') !== '0')
   useEffect(() => localStorage.setItem('wv-panel-l-ai', leftOpen ? '1' : '0'), [leftOpen])
   const [previewPath, setPreviewPath] = useState<string | null>(null)
-  // 右栏 [文档|审查] tab 与当前审查会话；宽度拖拽持久化；rightOpen 为右栏整体开关
-  const [rightTab, setRightTab] = useState<'review' | 'preview'>(() =>
-    localStorage.getItem('wv-right-tab') === 'review' ? 'review' : 'preview',
-  )
+  // 右栏 [知识|文档|审查] tab 与当前审查会话；宽度拖拽持久化；rightOpen 为右栏整体开关
+  const [rightTab, setRightTab] = useState<RightTab>(() => {
+    const v = localStorage.getItem('wv-right-tab')
+    return v === 'review' || v === 'knowledge' ? v : 'preview'
+  })
   useEffect(() => localStorage.setItem('wv-right-tab', rightTab), [rightTab])
   const [rightOpen, setRightOpen] = useState(() => localStorage.getItem('wv-panel-r-ai') === '1')
   useEffect(() => localStorage.setItem('wv-panel-r-ai', rightOpen ? '1' : '0'), [rightOpen])
@@ -161,6 +163,14 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snap.sessionsVersion])
+
+  // 任务流运行期间活刷新待审列表：暂存文件随 agent 写入逐个落盘，
+  // 3s 节奏轮询使审查面板文件清单/徽标计数/知识面板暂存待审同步增量更新（不必等回合结束）
+  useEffect(() => {
+    if (!busy) return
+    const t = setInterval(refreshPending, 3000)
+    return () => clearInterval(t)
+  }, [busy, refreshPending])
 
   // 挂载时探测 server 并加载会话列表 / skills；若有未关闭过的待审暂存则自动打开审查
   useEffect(() => {
@@ -243,17 +253,27 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
 
   const startTask = useCallback(
     (task: AgentTask) => {
+      // 任务永远新建独立会话：先清空视图，避免把新会话的流拼接到旧会话历史后面造成跨会话拼接假象
+      resetForNewSession()
       if (task.type === 'ingest')
         void storeRunStream(`摄取原始资料：raw/${task.rawFile}`, (onEvent, signal) =>
           runTask({ mode: 'ingest', rawFile: task.rawFile }, onEvent, signal),
         )
-      else
+      else if (task.type === 'batch-ingest') {
+        // 批量摄取：走聊天 skill 路径（单会话顺序处理，写入同经审核门）；新建会话 + 消息原文作暂存 target 便于溯源
+        const msg = `/skill:second-brain-ingest ${task.rawFiles.join(' ')}`
+        void storeRunStream(
+          msg,
+          (onEvent, signal) => chat({ sessionId: null, message: msg, model, thinkingLevel }, onEvent, signal),
+          { question: msg },
+        )
+      } else
         void storeRunStream(`修复 ${task.issues.length} 项健康问题`, (onEvent, signal) =>
           runTask({ mode: 'lint', issues: task.issues }, onEvent, signal),
         )
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeId],
+    [activeId, model, thinkingLevel],
   )
 
   // 阅读模式带来的任务：自动发起（消费后清空，避免重复触发）
@@ -347,13 +367,15 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     }
   }, [reviewRequest, openReview, onReviewRequestConsumed])
 
-  /** 审查面板应用/丢弃后：更新聊天指针卡状态、解除 dismissed、收起审查并刷新待审 */
+  /** 审查面板应用/丢弃后：更新聊天指针卡状态、解除 dismissed、收起审查并刷新待审；
+   * apply 服务端已重跑 sync，这里重拉快照让消化队列/已消化清单/阅读模式实时刷新（不再依赖整页 reload） */
   const handleReviewApplied = (sessionId: string) => {
     setDiffsState(sessionId, 'applied', '已应用，快照已同步')
     undismissReview(sessionId)
     setReviewSessionId(null)
     refreshSessions()
     refreshPending()
+    void loadVault(activeVault)
   }
   const handleReviewDiscarded = (sessionId: string) => {
     setDiffsState(sessionId, 'discarded', '已丢弃，知识库未发生任何变化')
@@ -389,6 +411,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     try {
       const r = await saveOutput({ title, content: fullText, question: m.question })
       patchMsg(i, { savedAs: r.path })
+      void loadVault(activeVault) // output/ 新增成品页，重拉快照
     } catch (e) {
       patchMsg(i, { saveError: String((e as Error)?.message || e) })
     }
@@ -398,6 +421,8 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   const showStaging = (id: string, _mode: string) => openReview(id)
 
   const offline = online === false
+  // 待审文件总数（徽标显示）；会话数在悬停提示中补充
+  const pendingFileCount = stagingPending.reduce((n, s) => n + s.files.length, 0)
   // pi-web 同款：新会话且无消息时输入区垂直居中，有内容后回到底端
   const isEmptyNew = msgs.length === 0 && !busy
 
@@ -452,8 +477,6 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
               onRename={doRename}
               onDelete={doDelete}
             />
-          ) : leftTab === 'knowledge' ? (
-            <KnowledgePanel onStartTask={startTask} onShowStaging={showStaging} busy={busy} online={online} />
           ) : leftTab === 'files' ? (
             <FileExplorer
               onPreview={(p) => {
@@ -522,7 +545,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
           <button
             onClick={() => setRightOpen((v) => !v)}
             aria-label={rightOpen ? '收起右栏' : '展开右栏'}
-            title={rightOpen ? '收起右栏（文档/审查）' : '展开右栏（文档/审查）'}
+            title={rightOpen ? '收起右栏（知识库/文档/审查）' : '展开右栏（知识库/文档/审查）'}
             className={`rounded-md border p-1.5 transition-colors ${
               rightOpen
                 ? 'border-accent/60 bg-accent/10 text-accent'
@@ -620,7 +643,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
           </div>
         </main>
 
-        {/* 右栏：焦点对象工作区 [文档 | 审查]，tab 永远可点 + 空态；TopBar 开关控制整体 */}
+        {/* 右栏：焦点对象工作区 [知识 | 文档 | 审查]，tab 永远可点 + 空态；TopBar 开关控制整体 */}
         {rightOpen && !offline && (
           <aside className="relative flex shrink-0 flex-col border-l border-line bg-ink" style={{ width: rightW }}>
             <div
@@ -632,6 +655,14 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
               <div className="h-full w-[2px] bg-accent/40 transition-colors group-hover:bg-accent group-active:bg-accent" />
             </div>
             <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">
+              <button
+                onClick={() => setRightTab('knowledge')}
+                className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1 text-[11.5px] transition-colors ${
+                  rightTab === 'knowledge' ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
+                }`}
+              >
+                知识
+              </button>
               <button
                 onClick={() => setRightTab('preview')}
                 className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1 text-[11.5px] transition-colors ${
@@ -653,12 +684,19 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
                 }`}
               >
                 审查
-                {stagingPending.length > 0 && (
-                  <span className="rounded-full bg-accent/20 px-1.5 font-mono text-[10px] text-accent">{stagingPending.length}</span>
+                {pendingFileCount > 0 && (
+                  <span
+                    className="rounded-full bg-accent/20 px-1.5 font-mono text-[10px] text-accent"
+                    title={`${stagingPending.length} 个待审会话 · 共 ${pendingFileCount} 个文件待审`}
+                  >
+                    {pendingFileCount}
+                  </span>
                 )}
               </button>
             </div>
-            {rightTab === 'review' ? (
+            {rightTab === 'knowledge' ? (
+              <KnowledgePanel onStartTask={startTask} onShowStaging={showStaging} onOpenPage={onOpenWikiPage} busy={busy} online={online} />
+            ) : rightTab === 'review' ? (
               <ReviewPanel
                 sessionId={reviewSessionId}
                 sessions={stagingPending}
@@ -669,7 +707,10 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
                 }}
                 onApplied={handleReviewApplied}
                 onDiscarded={handleReviewDiscarded}
-                onPartial={refreshPending}
+                onPartial={() => {
+                  refreshPending()
+                  void loadVault(activeVault) // 子集 apply 也可能改变消化状态
+                }}
               />
             ) : (
               <PreviewPanel path={previewPath} onClose={() => setPreviewPath(null)} />

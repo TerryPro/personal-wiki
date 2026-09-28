@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, Code2, Columns2, Eye, FileArchive, Sparkles } from 'lucide-react'
 import { marked } from 'marked'
 import { highlightBlocks } from '@/lib/highlight'
-import { applyOutlineIds, data, getBacklinks, getPage, outlineFromHtml, resolveTitle, CATEGORY_META } from '@/lib/wiki'
+import { applyOutlineIds, data, getBacklinks, getPage, loadVault, outlineFromHtml, resolveTitle, CATEGORY_META } from '@/lib/wiki'
+import { markRawIngested } from '@/lib/agent'
 import { hidePreview, showPreview } from '@/lib/preview'
 import type { OutlineItem, WikiPage } from '@/types'
 
@@ -114,8 +115,9 @@ function rewriteEmbeds(body: string, vaultId: string): string {
   })
 }
 
-/** 从已存字段重建 frontmatter，供源码视图展示 */
+/** 源码视图的 frontmatter：优先用 sync 保留的原文（忠实展示自定义字段），旧快照缺 fmRaw 时回退到从已存字段重建 */
 function rawMarkdown(page: WikiPage): string {
+  if (page.fmRaw) return (page.fmRaw.endsWith('\n') ? page.fmRaw : page.fmRaw + '\n') + page.content
   const lines = ['---']
   if (page.tags.length) lines.push(`tags: [${page.tags.join(', ')}]`)
   if (page.sources.length) lines.push(`sources: [${page.sources.join(', ')}]`)
@@ -176,6 +178,20 @@ export default function PageView({ page, onNavigate, onOutline, hl, view, onInge
   const [curHit, setCurHit] = useState(0)
   const outlineCb = useRef(onOutline)
   outlineCb.current = onOutline
+
+  // 人工消化标记/撤销（仅 raw 页横幅）：server 响应前已重跑 sync，重拉快照即可（保留阅读位置）
+  const [markBusy, setMarkBusy] = useState(false)
+  const toggleMark = async (value: boolean) => {
+    if (markBusy) return
+    setMarkBusy(true)
+    try {
+      await markRawIngested(page.id, value)
+      await loadVault(data.vaultId)
+      setMarkBusy(false)
+    } catch {
+      setMarkBusy(false)
+    }
+  }
 
   const { html, outline } = useMemo(() => {
     const body = rewriteEmbeds(page.content.replace(/^# .+$/m, ''), data.vaultId) // 标题单独渲染，避免双标题
@@ -284,6 +300,18 @@ export default function PageView({ page, onNavigate, onOutline, hl, view, onInge
                 )
               })}
             </span>
+          ) : page.ingested ? (
+            <span className="flex items-center gap-2 text-fg-muted">
+              已人工标记为消化
+              <button
+                onClick={() => toggleMark(false)}
+                disabled={markBusy}
+                className="flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-0.5 text-[11.5px] text-fg-secondary transition-colors hover:border-cat-concept/50 hover:text-cat-concept disabled:opacity-40"
+                title="撤销人工标记（置回 ingested: false），文件将回到待消化队列"
+              >
+                撤销标记
+              </button>
+            </span>
           ) : (
             <span className="flex items-center gap-2 text-cat-concept">
               尚未消化
@@ -297,6 +325,14 @@ export default function PageView({ page, onNavigate, onOutline, hl, view, onInge
                   启动摄取
                 </button>
               )}
+              <button
+                onClick={() => toggleMark(true)}
+                disabled={markBusy}
+                className="flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-0.5 text-[11.5px] text-fg-muted transition-colors hover:border-cat-entity/50 hover:text-cat-entity disabled:opacity-40"
+                title="人工标记已消化（置 ingested: true）——适用于 sources 元数据写错或无需摄取的文件"
+              >
+                标记已消化
+              </button>
             </span>
           )}
         </div>

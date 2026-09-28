@@ -43,6 +43,9 @@ function DiffLines({ diff }: { diff: string }) {
 
 const MODE_LABEL: Record<string, string> = { ingest: '摄取', lint: '修复', chat: '会话', edit: '编辑' }
 
+/** 待审会话的来源短名：ingest 取 raw 文件名，其余模式 target 本身即摘要 */
+const shortTarget = (s: StagingSessionInfo) => (s.mode === 'ingest' ? s.target.split('/').pop() || s.target : s.target)
+
 /**
  * 右栏「审查」tab：暂存 diff 审批。套 PanelFrame 统一 chrome。
  * 左文件清单 + 右选中文件 diff；多待审会话时头部提供选择器；footer 应用/丢弃。
@@ -50,7 +53,6 @@ const MODE_LABEL: Record<string, string> = { ingest: '摄取', lint: '修复', c
 export default function ReviewPanel({ sessionId, sessions, onSelectSession, onClose, onApplied, onDiscarded, onPartial }: Props) {
   const [files, setFiles] = useState<DiffFile[]>([])
   const [selected, setSelected] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -61,7 +63,6 @@ export default function ReviewPanel({ sessionId, sessions, onSelectSession, onCl
       setFiles([])
       return
     }
-    setLoading(true)
     setError(null)
     try {
       const detail = await getStagingDetail(sessionId)
@@ -71,12 +72,13 @@ export default function ReviewPanel({ sessionId, sessions, onSelectSession, onCl
       setError(String((e as Error)?.message || e))
       setFiles([])
     }
-    setLoading(false)
   }, [sessionId])
 
+  // 初次 / 切换会话 / 流式期间活刷新：任务流运行时 AiMode 以 3s 节奏轮询待审列表，
+  // sessions 引用变化触发此处重拉——暂存文件随 agent 写入逐个显现，不必等回合结束
   useEffect(() => {
     load()
-  }, [load])
+  }, [load, sessions])
 
   const act = async (action: 'apply' | 'discard') => {
     if (!sessionId) return
@@ -121,8 +123,8 @@ export default function ReviewPanel({ sessionId, sessions, onSelectSession, onCl
   return (
     <PanelFrame
       icon={FileDiff}
-      title="改动审查"
-      meta={session ? `${modeLabel} · ${files.length} 文件` : undefined}
+      title={session ? `改动审查 · ${modeLabel}${session.target ? ` ${session.target}` : ''}` : '改动审查'}
+      meta={session ? `${files.length} 文件` : undefined}
       onClose={onClose}
       actions={
         sessions.length > 1 ? (
@@ -130,11 +132,11 @@ export default function ReviewPanel({ sessionId, sessions, onSelectSession, onCl
             value={sessionId ?? ''}
             onChange={(e) => onSelectSession(e.target.value)}
             title="切换待审会话"
-            className="max-w-[92px] shrink-0 rounded-md border border-line bg-surface px-1 py-0.5 font-mono text-[10px] text-fg-secondary focus:border-accent/60 focus:outline-none"
+            className="max-w-[150px] shrink-0 rounded-md border border-line bg-surface px-1 py-0.5 font-mono text-[10px] text-fg-secondary focus:border-accent/60 focus:outline-none"
           >
             {sessions.map((s, i) => (
               <option key={s.id} value={s.id}>
-                {i + 1}/{sessions.length} {MODE_LABEL[s.mode] ?? s.mode}
+                {i + 1}/{sessions.length} {MODE_LABEL[s.mode] ?? s.mode} {shortTarget(s)}
               </option>
             ))}
           </select>
@@ -170,10 +172,6 @@ export default function ReviewPanel({ sessionId, sessions, onSelectSession, onCl
           <FileDiff size={20} className="opacity-40" />
           没有待审改动
           <span className="text-[10.5px] opacity-70">agent 或编辑产生的暂存改动会出现在这里</span>
-        </div>
-      ) : loading ? (
-        <div className="flex h-full items-center justify-center gap-2 text-[12px] text-fg-muted">
-          <Loader2 size={13} className="animate-spin" /> 加载暂存改动…
         </div>
       ) : files.length === 0 ? (
         <div className="flex h-full items-center justify-center px-6 text-center text-[11.5px] text-fg-muted">该会话没有文件改动。</div>

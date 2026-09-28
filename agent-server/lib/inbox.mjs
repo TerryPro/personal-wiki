@@ -1,6 +1,6 @@
 // inbox.mjs — raw/ 收件箱：本地文件上传写入 + URL 抓取转 Markdown
 // 与审核门无关：raw/ 是用户输入区（不可变原始资料），由 server 直接落盘，不经 LLM/diff。
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, extname, basename } from 'node:path'
 import TurndownService from 'turndown'
 
@@ -63,6 +63,29 @@ export function saveUploadedFiles(vaultPath, files) {
     written.push({ path: dest.replace(/\\/g, '/').slice(vaultPath.length + 1), bytes: buf.length })
   }
   return { written }
+}
+
+/* ————— 人工消化标记 ————— */
+
+/**
+ * 置位/复位 raw 文件 frontmatter 的 ingested 字段（人工消化标记，raw/ 唯一写入例外）。
+ * 除该键外字节级保留原文件内容；无 frontmatter 块时抛错（不向原始文件注入新块）。
+ * @param {string} vaultPath vault 根绝对路径
+ * @param {string} relPath vault 相对路径（调用方已校验 raw/ 前缀与存在性）
+ * @param {boolean} value
+ * @returns {{path: string, ingested: boolean}}
+ */
+export function markIngested(vaultPath, relPath, value) {
+  const abs = join(vaultPath, relPath)
+  const text = readFileSync(abs, 'utf8')
+  // 与 sync-data.mjs parseFrontmatter 同一边界约定：仅匹配文件开头的 --- 块
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n?)/)
+  if (!m) throw new Error('该文件没有 frontmatter 块，无法标记（请先补齐 --- 包裹的元信息头）')
+  const nl = m[0].includes('\r\n') ? '\r\n' : '\n'
+  const line = `ingested: ${value ? 'true' : 'false'}`
+  const block = /^ingested:.*$/m.test(m[1]) ? m[1].replace(/^ingested:.*$/m, line) : `${m[1]}${nl}${line}`
+  writeFileSync(abs, `---${nl}${block}${nl}---${m[2]}` + text.slice(m[0].length), 'utf8')
+  return { path: relPath, ingested: !!value }
 }
 
 /* ————— URL 抓取剪藏 ————— */

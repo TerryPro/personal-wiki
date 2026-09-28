@@ -23,6 +23,8 @@ export type Msg =
       role: 'diffs'
       sessionId: string
       mode: string
+      /** 产生这批改动的来源（ingest = raw 文件路径，lint = 问题摘要） */
+      target?: string
       files: DiffFile[]
       state: 'pending' | 'applied' | 'discarded'
       note?: string
@@ -345,7 +347,13 @@ export default function ChatWindow({ msgs, busy, onLink, onSave, onOpenReview }:
                 <div key={i} id={`wv-msg-${i}`} className="rounded-card border border-line bg-surface p-2.5">
                   <div className="flex items-center gap-1.5 text-[12px] font-semibold text-fg">
                     <Check size={12} className={m.state === 'applied' ? 'text-cat-entity' : 'text-accent'} />
-                    {m.mode === 'ingest' ? '摄取改动' : m.mode === 'chat' ? '会话改动' : '修复改动'} · {m.files.length} 文件
+                    {m.mode === 'ingest' ? '摄取改动' : m.mode === 'chat' ? '会话改动' : '修复改动'}
+                    {m.target && (
+                      <span className="min-w-0 truncate font-mono text-[10.5px] font-normal text-fg-muted" title={m.target}>
+                        {m.target}
+                      </span>
+                    )}
+                    · {m.files.length} 文件
                     <span className="ml-auto font-normal text-fg-muted">
                       {m.state === 'applied' ? '已应用' : m.state === 'discarded' ? '已丢弃' : '待审核'}
                     </span>

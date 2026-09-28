@@ -8,11 +8,27 @@ import { unifiedDiff } from './diff.mjs'
 /** 活跃暂存会话：id → { id, dir, vaultPath, files:Set, createdAt, mode, target } */
 export const sessions = new Map()
 
+/** 会话元信息文件：暂存目录的兄弟文件（放目录外，避免被 walkStaged 收为暂存对象） */
+const metaFile = (vaultPath, id) => join(vaultPath, '.staging', `${id}.meta.json`)
+
+function writeMeta(sess) {
+  try {
+    writeFileSync(metaFile(sess.vaultPath, sess.id), JSON.stringify({ mode: sess.mode, target: sess.target, createdAt: sess.createdAt }), 'utf8')
+  } catch { /* 元信息丢失不影响主流程 */ }
+}
+
+function removeMeta(sess) {
+  try {
+    rmSync(metaFile(sess.vaultPath, sess.id), { force: true })
+  } catch { /* ignore */ }
+}
+
 export function createSession(vaultPath, mode, target) {
   const id = `${mode}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
   const dir = join(vaultPath, '.staging', id)
   mkdirSync(dir, { recursive: true })
   sessions.set(id, { id, dir, vaultPath, files: new Set(), createdAt: new Date().toISOString(), mode, target })
+  writeMeta(sessions.get(id))
   return sessions.get(id)
 }
 
@@ -88,6 +104,7 @@ export function applySession(id) {
     changed.push(f.path)
   }
   rmSync(sess.dir, { recursive: true, force: true })
+  removeMeta(sess)
   sessions.delete(id)
   return changed
 }
@@ -97,6 +114,7 @@ export function discardSession(id) {
   const sess = getSession(id)
   if (!sess) return false
   rmSync(sess.dir, { recursive: true, force: true })
+  removeMeta(sess)
   sessions.delete(id)
   return true
 }
@@ -107,6 +125,7 @@ function remainingAndCleanup(sess) {
   const done = remaining.length === 0
   if (done) {
     rmSync(sess.dir, { recursive: true, force: true })
+    removeMeta(sess)
     sessions.delete(sess.id)
   }
   return { remaining: remaining.length, done }
@@ -175,8 +194,12 @@ export function recoverFromDisk(vaultPath) {
     const dir = join(root, id)
     if (!statSync(dir).isDirectory()) continue
     if (sessions.has(id)) continue // 已在内存中，跳过
-    // id 格式：<mode>-<ts36>-<rand>；取首段为 mode
-    const mode = id.split('-')[0] || 'chat'
+    // id 格式：<mode>-<ts36>-<rand>；meta 兄弟文件优先，缺失时取首段为 mode
+    let meta = null
+    try {
+      meta = JSON.parse(readFileSync(join(root, `${id}.meta.json`), 'utf8'))
+    } catch { /* 旧版暂存无 meta */ }
+    const mode = meta?.mode || id.split('-')[0] || 'chat'
     let createdAt = null
     try {
       createdAt = statSync(dir).mtime.toISOString()
@@ -187,9 +210,9 @@ export function recoverFromDisk(vaultPath) {
       dir,
       vaultPath,
       files,
-      createdAt: createdAt || new Date().toISOString(),
+      createdAt: meta?.createdAt || createdAt || new Date().toISOString(),
       mode,
-      target: '(重启恢复)',
+      target: meta?.target || '(重启恢复)',
     })
     recovered.push(id)
   }

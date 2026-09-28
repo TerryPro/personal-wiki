@@ -61,7 +61,7 @@ export type AgentStreamEvent =
     }
   | { type: 'turn'; model: string | null; usage: { input: number; output: number; cacheRead: number } | null; cost: number }
   | { type: 'usage'; cost: number; contextUsage: Record<string, number> | null }
-  | { type: 'diffs'; sessionId: string; mode: string; files: DiffFile[] }
+  | { type: 'diffs'; sessionId: string; mode: string; target?: string; files: DiffFile[] }
   | { type: 'done' }
   | { type: 'error'; message: string }
 
@@ -379,4 +379,12 @@ export const clipUrl = (url: string) =>
   postJson<{ ok: boolean; path: string; title: string; bytes: number; synced: boolean }>('/agent/raw/clip', {
     vaultId: _vaultId,
     url,
+  })
+
+/** 人工消化标记：置位/复位 raw 文件 frontmatter 的 ingested 字段（server 端同步重跑 sync） */
+export const markRawIngested = (file: string, ingested: boolean) =>
+  postJson<{ ok: boolean; path: string; ingested: boolean; synced: boolean }>('/agent/raw/mark', {
+    vaultId: _vaultId,
+    file,
+    ingested,
   })

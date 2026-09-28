@@ -15,8 +15,12 @@ export interface WikiPage {
   links: string[]
   excerpt: string
   content: string
+  /** frontmatter 原文块（含起止 ---），源码视图优先展示；旧快照无此字段时回退重建 */
+  fmRaw?: string
   /** raw 页：消化它的 source 页 id 列表 */
   digestedBy?: string[]
+  /** raw 页：人工消化标记（frontmatter ingested: true，sources 反查落空时兜底） */
+  ingested?: boolean
   /** raw/output 页：文件字节数与修改时间 */
   size?: number
   mtime?: string
@@ -35,8 +39,8 @@ export interface WikiData {
   vaultId: string
   pages: WikiPage[]
   brokenLinks?: BrokenLink[]
-  /** raw/ 消化进度汇总 */
-  digestion?: { total: number; digested: number; undigestedFiles: string[] }
+  /** raw/ 消化进度汇总（manual = 仅靠人工标记消化的数量） */
+  digestion?: { total: number; digested: number; manual?: number; undigestedFiles: string[] }
   /** output/ 中非 Markdown 附件条目 */
   outputAttachments?: { name: string; size: number; mtime: string }[]
 }
@@ -59,4 +63,6 @@ export interface OutlineItem {
 /** 跨模式任务：Wiki 阅读模式发起，交给 AI 管理模式执行 */
 export type AgentTask =
   | { type: 'ingest'; rawFile: string; title: string }
+  /** 批量摄取：知识面板勾选多个 raw 文件，经聊天 skill 路径单会话顺序处理 */
+  | { type: 'batch-ingest'; rawFiles: string[] }
   | { type: 'lint'; issues: string[] }

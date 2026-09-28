@@ -81,8 +81,8 @@ ${REVIEW_GATE_NOTE}
 按以下流程处理指定的 raw 文件（second-brain-ingest 规范）：
 
 1. 完整阅读来源文件（含图片引用时记录它们；重要图表用文字描述入页）。
-2. 在 wiki/sources/ 创建来源摘要页（kebab-case 文件名），frontmatter 含 tags/sources/aliases/created/updated；正文含：来源元信息、摘要、核心论断、提及实体、涉及概念。摘要页只记录事实，解读放概念/综合页。
-3. 对文中每个实体（人物/组织/产品/工具）与概念（思想/框架/理论/模式）：已有页面则读取后补充新信息、追加 sources、更新 updated 日期、标注矛盾并引用双方来源；没有则在 wiki/entities/ 或 wiki/concepts/ 新建聚焦页。优先更新已有页面而非新建。
+2. 在 wiki/sources/ 创建来源摘要页（kebab-case 文件名），frontmatter 含 tags/sources/aliases/created/updated；**sources 字段必须填 raw/ 下原始文件的文件名**（如 \`001_五帝本纪.md\`，不带 raw/ 前缀），绝不是 wiki 页面自己的文件名或 slug——前端靠它反查消化状态，写错会被判定为未消化；正文含：来源元信息、摘要、核心论断、提及实体、涉及概念。摘要页只记录事实，解读放概念/综合页。
+3. 对文中每个实体（人物/组织/产品/工具）与概念（思想/框架/理论/模式）：已有页面则读取后补充新信息、在 sources 列表追加该 raw 文件名（同样不是 wiki 页名）、更新 updated 日期、标注矛盾并引用双方来源；没有则在 wiki/entities/ 或 wiki/concepts/ 新建聚焦页。优先更新已有页面而非新建。
 4. 在所有相关页面间补齐 [[双链]]。
 5. 更新 wiki/index.md（每新页一行，<120 字符，放对分类标题下）。
 6. 追加 wiki/log.md：\`## [YYYY-MM-DD] ingest | 来源标题\` + 一段描述（新建 N 页、更新 M 页、新实体/概念链接）。log.md 只能追加，绝不修改已有条目。
