@@ -245,6 +245,43 @@ export function sessionUsage(sessionId) {
   return { cost: e.session.state?.cost ?? 0, contextUsage }
 }
 
+/**
+ * 上下文检视：完整系统提示词 + 模式化工具集 + 用量。
+ * 系统提示由运行时拼装（AGENTS.md + 技能索引 + 模式 GUIDE）；会话不在活跃缓存时先按磁盘转录懒恢复（与下一条消息同路径），任意历史会话均可检视。
+ */
+export function sessionContext(sessionId) {
+  const e = cache.get(sessionId)
+  if (!e) return null
+  let contextUsage = null
+  let systemPrompt = null
+  try {
+    contextUsage = e.session.getContextUsage?.() ?? null
+    systemPrompt = e.session.systemPrompt ?? null
+  } catch { /* ignore */ }
+  return {
+    active: true,
+    mode: e.mode,
+    vaultId: e.vaultId,
+    model: e.modelKey,
+    systemPrompt,
+    tools: TOOLS[e.mode] ?? null,
+    contextUsage,
+    cost: e.session.state?.cost ?? 0,
+  }
+}
+
+/** 检视入口：缓存未命中时从磁盘恢复会话（mode=query）后再取上下文；恢复失败（会话不存在/损坏）返回 null */
+export async function sessionContextOrRestore(sessionId, vaultId = null) {
+  if (!cache.has(sessionId)) {
+    try {
+      await obtainSession({ sessionId, mode: 'query', vaultId })
+    } catch {
+      return null
+    }
+  }
+  return sessionContext(sessionId)
+}
+
 // 空闲清理（server 生命周期内定时扫描；busy 会话不清）
 setInterval(() => {
   const now = Date.now()

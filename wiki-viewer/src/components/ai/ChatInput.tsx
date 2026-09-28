@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import {
   ArrowRight,
-  Cog,
   Eraser,
   File,
-  Lightbulb,
   Minimize2,
   Pencil,
   Plus,
   Puzzle,
-  ShieldCheck,
   Square,
   Terminal,
 } from 'lucide-react'
@@ -22,14 +19,6 @@ interface Props {
   onStop: () => void
   busy: boolean
   disabled: boolean
-  /** 当前会话模型显示名（点击打开设置 tab） */
-  modelDisplay: string
-  onOpenSettings: () => void
-  /** thinking level（点击循环 off→low→medium→high） */
-  thinkingLevel: string
-  onThinkingCycle: () => void
-  /** 压缩当前会话上下文 */
-  onCompact: () => void
   /** 内置命令（/new /compact /clear）由菜单执行 */
   onCommand: (cmd: 'new' | 'compact' | 'clear') => void
   /** skills 列表（/ 菜单数据源） */
@@ -62,7 +51,7 @@ function detectMenu(value: string, caret: number): MenuState {
   return null
 }
 
-/** pi-web 风格输入区：一体化圆角容器 + 内嵌发送按钮 + / 命令与 @ 文件菜单 + 底部状态行 */
+/** pi-web 风格输入区：一体化圆角容器 + 内嵌发送按钮 + / 命令与 @ 文件菜单（agent 信息与控制已迁至 AgentToolbar） */
 export default function ChatInput({
   value,
   onChange,
@@ -70,11 +59,6 @@ export default function ChatInput({
   onStop,
   busy,
   disabled,
-  modelDisplay,
-  onOpenSettings,
-  thinkingLevel,
-  onThinkingCycle,
-  onCompact,
   onCommand,
   skills,
 }: Props) {
@@ -335,40 +319,6 @@ export default function ChatInput({
               发送
             </button>
           )}
-        </div>
-
-        {/* 底部状态行（pi-web 同款）：左 = 模型；右 = 思考档 + 工具集 + 压缩 */}
-        <div className="mt-1.5 flex items-center gap-3 px-1 text-[11px] text-fg-muted">
-          <button
-            onClick={onOpenSettings}
-            title="当前会话模型（点击在设置中切换）"
-            className="flex items-center gap-1.5 rounded px-1 py-px text-fg-secondary transition-colors hover:text-accent"
-          >
-            <Cog size={11} />
-            {modelDisplay}
-          </button>
-          <span className="ml-auto flex items-center gap-3.5">
-            <button
-              onClick={onThinkingCycle}
-              title="思考强度：点击在 off → low → medium → high 间循环"
-              className="flex items-center gap-1 rounded px-1 py-px transition-colors hover:text-fg"
-            >
-              <Lightbulb size={11} />
-              {thinkingLevel}
-            </button>
-            <span className="flex items-center gap-1 text-fg-muted/80" title="write/edit 改动被重定向到 .staging/ 暂存区，diff 审核通过后才写入真实知识库（仅 wiki/ 目录）">
-              <ShieldCheck size={11} />
-              审核门
-            </span>
-            <button
-              onClick={onCompact}
-              title="压缩当前会话上下文（/compact）"
-              className="flex items-center gap-1 rounded px-1 py-px transition-colors hover:text-fg"
-            >
-              <Minimize2 size={11} />
-              压缩
-            </button>
-          </span>
         </div>
       </div>
     </div>

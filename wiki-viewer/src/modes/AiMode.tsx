@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
-import { BookOpen, Bot, FileDiff, FileText, FolderTree, ListOrdered, Moon, PanelLeft, PanelRight, Settings2, Sun } from 'lucide-react'
+import { BookOpen, Bot, FileDiff, FileText, FolderTree, ListOrdered, Moon, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
 import ModeSwitch from '@/components/ModeSwitch'
 import VaultSwitcher from '@/components/VaultSwitcher'
 import Brand from '@/components/Brand'
@@ -10,7 +10,8 @@ import KnowledgePanel from '@/components/ai/KnowledgePanel'
 import FileExplorer from '@/components/ai/FileExplorer'
 import PreviewPanel from '@/components/ai/PreviewPanel'
 import ReviewPanel from '@/components/ai/ReviewPanel'
-import AgentInfo from '@/components/ai/AgentInfo'
+import ContextPanel from '@/components/ai/ContextPanel'
+import AgentToolbar from '@/components/ai/AgentToolbar'
 import SessionIndex, { type IndexMode } from '@/components/ai/SessionIndex'
 import { loadVault } from '@/lib/wiki'
 import SettingsPanel, { type ModelChoice } from '@/components/ai/SettingsPanel'
@@ -72,7 +73,7 @@ interface Props {
 }
 
 type LeftTab = 'sessions' | 'files' | 'settings'
-type RightTab = 'knowledge' | 'preview' | 'review'
+type RightTab = 'knowledge' | 'preview' | 'review' | 'context'
 
 const TABS: { key: LeftTab; label: string; icon: typeof Bot }[] = [
   { key: 'sessions', label: '会话', icon: Bot },
@@ -92,10 +93,10 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   const [leftOpen, setLeftOpen] = useState(() => localStorage.getItem('wv-panel-l-ai') !== '0')
   useEffect(() => localStorage.setItem('wv-panel-l-ai', leftOpen ? '1' : '0'), [leftOpen])
   const [previewPath, setPreviewPath] = useState<string | null>(null)
-  // 右栏 [知识|文档|审查] tab 与当前审查会话；宽度拖拽持久化；rightOpen 为右栏整体开关
+  // 右栏 [知识|文档|审查|上下文] tab 与当前审查会话；宽度拖拽持久化；rightOpen 为右栏整体开关
   const [rightTab, setRightTab] = useState<RightTab>(() => {
     const v = localStorage.getItem('wv-right-tab')
-    return v === 'review' || v === 'knowledge' ? v : 'preview'
+    return v === 'review' || v === 'knowledge' || v === 'context' ? v : 'preview'
   })
   useEffect(() => localStorage.setItem('wv-right-tab', rightTab), [rightTab])
   const [rightOpen, setRightOpen] = useState(() => localStorage.getItem('wv-panel-r-ai') === '1')
@@ -434,13 +435,26 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
       onStop={stopStream}
       busy={busy}
       disabled={offline}
+      onCommand={handleCommand}
+      skills={skills}
+    />
+  )
+
+  // Agent 工具首栏：pi agent 信息与控制统一入口（模型/思考档/ctx/成本/检视/审核门/压缩）
+  const agentToolbar = (
+    <AgentToolbar
+      usage={usage}
       modelDisplay={model?.id ?? lastModelName ?? defaultModelName ?? '默认模型'}
       onOpenSettings={() => setLeftTab('settings')}
       thinkingLevel={thinkingLevel}
       onThinkingCycle={cycleThinking}
       onCompact={() => handleCommand('compact')}
-      onCommand={handleCommand}
-      skills={skills}
+      onOpenContext={() => {
+        setRightTab('context')
+        setRightOpen(true)
+      }}
+      activeId={activeId}
+      busy={busy}
     />
   )
 
@@ -545,7 +559,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
           <button
             onClick={() => setRightOpen((v) => !v)}
             aria-label={rightOpen ? '收起右栏' : '展开右栏'}
-            title={rightOpen ? '收起右栏（知识库/文档/审查）' : '展开右栏（知识库/文档/审查）'}
+            title={rightOpen ? '收起右栏（知识库/文档/审查/上下文）' : '展开右栏（知识库/文档/审查/上下文）'}
             className={`rounded-md border p-1.5 transition-colors ${
               rightOpen
                 ? 'border-accent/60 bg-accent/10 text-accent'
@@ -563,7 +577,6 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
           >
             {theme === 'dark' ? <Sun size={14} strokeWidth={1.9} /> : <Moon size={14} strokeWidth={1.9} />}
           </button>
-          <AgentInfo usage={usage} />
           <span
             className={`flex items-center gap-1.5 ${offline ? 'text-cat-concept' : ''}`}
             title={offline ? 'agent-server 离线' : 'pi 智能体服务在线'}
@@ -585,6 +598,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
             <SessionIndex msgs={msgs} mode={indexMode} onMode={setIndexMode} onClose={() => setIndexMode('off')} />
           )}
           <div className="flex min-w-0 flex-1 flex-col">
+          {!offline && agentToolbar}
           {offline ? (
             <div className="flex flex-1 items-center justify-center p-8">
               <div className="max-w-sm rounded-card border border-line bg-surface p-5 text-[12.5px] leading-6 text-fg-secondary">
@@ -696,6 +710,15 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
                   </span>
                 )}
               </button>
+              <button
+                onClick={() => setRightTab('context')}
+                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] transition-colors ${
+                  rightTab === 'context' ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
+                }`}
+              >
+                <ScrollText size={12} strokeWidth={1.9} />
+                上下文
+              </button>
             </div>
             {rightTab === 'knowledge' ? (
               <KnowledgePanel onStartTask={startTask} onShowStaging={showStaging} onOpenPage={onOpenWikiPage} busy={busy} online={online} />
@@ -715,6 +738,8 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
                   void loadVault(activeVault) // 子集 apply 也可能改变消化状态
                 }}
               />
+            ) : rightTab === 'context' ? (
+              <ContextPanel sessionId={activeId} />
             ) : (
               <PreviewPanel path={previewPath} onClose={() => setPreviewPath(null)} />
             )}

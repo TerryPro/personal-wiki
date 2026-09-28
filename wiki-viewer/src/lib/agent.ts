@@ -301,6 +301,20 @@ export const searchFiles = (q: string) =>
 export const compactSession = (sessionId: string) =>
   postJson<{ ok: boolean; tokensBefore: number | null }>('/agent/compact', { sessionId })
 
+/** 上下文检视：会话的完整系统提示词 + 工具集 + 用量（冷会话由 server 懒恢复，首次略慢；会话不存在时 404） */
+export interface SessionContextInfo {
+  active: boolean
+  mode: string
+  vaultId: string
+  model: string | null
+  systemPrompt: string | null
+  tools: string[] | null
+  contextUsage: { tokens: number | null; contextWindow: number; percent: number | null } | null
+  cost: number
+}
+export const getSessionContext = (sessionId: string) =>
+  getJson<SessionContextInfo>(`/agent/sessions/${encodeURIComponent(sessionId)}/context?vaultId=${encodeURIComponent(_vaultId)}`)
+
 /* ————— 模型与 Skills ————— */
 
 /** 模型目录 + SDK 解析出的默认模型（空会话输入区状态行展示） */

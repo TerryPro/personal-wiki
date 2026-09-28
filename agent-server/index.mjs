@@ -34,6 +34,7 @@ import {
   TOOLS,
   TOOL_CATALOG,
   setModeTools,
+  sessionContextOrRestore,
   sessionUsage,
 } from './lib/sessions.mjs'
 import { saveUploadedFiles, clipUrl, markIngested } from './lib/inbox.mjs'
@@ -705,6 +706,12 @@ const server = createServer(async (req, res) => {
       const sid = decodeURIComponent(mMsg[1])
       const r = await sessionMessages(sid, url.searchParams.get('vaultId'))
       return r ? json(res, 200, { ...r, usage: sessionUsage(sid) }) : json(res, 404, { error: '会话不存在' })
+    }
+    const mCtx = p.match(/^\/agent\/sessions\/([^/]+)\/context$/)
+    if (req.method === 'GET' && mCtx) {
+      // 冷会话懒恢复（从磁盘转录重建 + 拼装系统提示），首次检视略慢属正常
+      const ctx = await sessionContextOrRestore(decodeURIComponent(mCtx[1]), url.searchParams.get('vaultId'))
+      return ctx ? json(res, 200, ctx) : json(res, 404, { error: '会话不存在或无法从磁盘恢复' })
     }
     const mRename = p.match(/^\/agent\/sessions\/([^/]+)\/rename$/)
     if (req.method === 'POST' && mRename) {

@@ -41,6 +41,7 @@ Base: `http://127.0.0.1:8787`（仅 localhost）。dev 下经 vite proxy `/agent
 |---|---|---|
 | GET | `/agent/sessions?vaultId=` | `{sessions:[{id,name,created,modified,messageCount,firstMessage}]}` |
 | GET | `/agent/sessions/:id/messages?vaultId=` | `{sessionId,name,messages[],usage?}`；usage 仅活跃缓存会话有值 |
+| GET | `/agent/sessions/:id/context?vaultId=` | 上下文检视 `{active,mode,vaultId,model,systemPrompt,tools[],contextUsage,cost}`；系统提示运行时拼装，冷会话由 server 按磁盘转录懒恢复（mode=query，首次略慢）；会话不存在/无法恢复时 404 |
 | POST | `/agent/sessions/:id/rename` | body `{name, vaultId}` |
 | DELETE | `/agent/sessions/:id?vaultId=` | 删除会话文件 |
 | POST | `/agent/compact` | body `{sessionId}` 压缩上下文 |

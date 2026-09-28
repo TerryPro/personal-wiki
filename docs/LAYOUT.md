@@ -14,8 +14,9 @@
 | 工作（工作模式） | `AiMode` / `mode='ai'` | AI 工作区：会话 + 知识库管理；分段标签用 2 字「工作」，散文用「工作模式」 |
 | 顶栏 | `header` / TopBar | 每个模式顶部的 46px 工具条 |
 | 左栏 | 左 `aside` | 全高首列：品牌区 + tab（工作模式）/ 分类导航（阅读） |
-| 右栏 | 右 `aside` | 工作模式的 `[知识 \| 文档 \| 审查]` 统一容器 |
+| 右栏 | 右 `aside` | 工作模式的 `[知识 \| 文档 \| 审查 \| 上下文]` 统一容器 |
 | 聊天列 | 中央 `main` | 工作模式的消息流 + 输入区 |
+| 工具首栏 | `AgentToolbar` | 聊天列顶部 `h-9` 信息条：pi agent 信息与控制统一入口（模型/思考档/ctx meter/成本/上下文检视入口/审核门/压缩）；检视内容在右栏「上下文」tab 展示 |
 | 对话索引 | `SessionIndex` | 会话轮次快速索引（pi-map 风格），置于聊天列**左侧** |
 | minimap | `SessionIndex mode='mini'` | 对话索引的**收缩态**：窄条小方块 |
 | 索引侧栏 | `SessionIndex mode='full'` | 对话索引的**展开态**：带背景框的完整列表 |
@@ -50,9 +51,9 @@
 ```
 ┌ 顶栏(46px) ─────────────────────────────────────────────┐
 ├────────┬───────────────────────────────────┬─────────────┤
-│ 左栏    │ 对话索引 │  聊天列 main             │ 右栏         │
-│ aside  │ Session  │  ChatWindow            │ [知识|文档|  │
-│ w-side │ Index    │  ChatInput             │  审查]       │
+│ 左栏    │ 对话索引 │ 工具首栏 AgentToolbar   │ 右栏         │
+│ aside  │ Session  │ 聊天列 ChatWindow      │ [知识|文档|  │
+│ w-side │ Index    │      ChatInput          │  审查]       │
 │        │ mini/full│                        │ 拖拽 340-760  │
 └────────┴───────────────────────────────────┴─────────────┘
 ```
@@ -71,7 +72,9 @@
 **尺寸**：高度 `h-[46px]`；header `gap-2`；右簇 `gap-2.5`；背景 `bg-ink-soft` + 下边框。
 
 **阅读模式右簇**：右栏折叠 → 免打扰 → 命令面板 → 阅读设置 → 主题 → 页数·同步时间
-**工作模式右簇**：对话索引开关 → 对话排版设置 → 主题 → AgentInfo（上下文 meter + 累计成本）→ 在线状态
+**工作模式右簇**：对话索引开关 → 对话排版设置 → 主题 → 在线状态
+
+**Agent 信息不在顶栏**：ctx meter、成本、模型、思考档、审核门、压缩、上下文检视统一收在聊天列顶部的 `AgentToolbar` 工具首栏（`h-9`，左簇=信息、右簇=控制），顶栏不重复展示；`AgentInfo`（meter 组件）由工具首栏嵌入。
 
 ---
 
@@ -109,10 +112,11 @@
 
 - **整体开关**：TopBar 右簇 `PanelRight` 按钮控制右栏开/关（持久化 `wv-panel-r-ai`）；右栏是一等公民列，不再“仅在有内容时出现”。离线时右栏整体隐藏。
 - 统一容器 `aside`，宽度拖拽 `340–760px`，持久化 `wv-right-w`；拖拽柄 = 7px 隐形热区 + 居中 2px 可见 accent 线（hover/active 加深），线细但颜色醒目。
-- 顶部 tab：`[知识 | 文档 | 审查(n)]`，**永远可点**（不 disabled）；无内容时显示引导空态而非禁用。审查 tab 徽标 n = **待审文件总数**（跨会话求和），悬停提示补充会话数（如「1 个待审会话 · 共 37 个文件待审」）。tab 选择持久化 `wv-right-tab`（默认文档）。
+- 顶部 tab：`[知识 | 文档 | 审查(n) | 上下文]`，**永远可点**（不 disabled）；无内容时显示引导空态而非禁用。审查 tab 徽标 n = **待审文件总数**（跨会话求和），悬停提示补充会话数（如「1 个待审会话 · 共 37 个文件待审」）。tab 选择持久化 `wv-right-tab`（默认文档）。
 - **共享 chrome `PanelFrame`**：头 `h-9`（icon + title + meta + actions + close）+ body 填充 + 可选 footer。PreviewPanel/ReviewPanel 均套用它，风格统一。
 - **知识 tab（KnowledgePanel）**：vault 总览与入库管理——收件箱（拖拽上传/URL 剪藏）、待消化原料队列（逐个发起摄取，或「标记已消化」文字按钮人工标记；队尾附「已消化 N」折叠清单，自动消化标注来源页、人工标记带徽标）、健康问题（孤立页/断链/陈旧页，一键发起 lint 修复）、暂存待审列表（点击切到审查 tab）。根节点 `flex h-full flex-col overflow-y-auto` 自滚动，不套 PanelFrame。
 - **文档 tab（PreviewPanel）**：头 = FileText + path + size；actions = 渲染/源码切换；空态引导“在左栏「文件」中选择文件”。
+- **上下文 tab（ContextPanel）**：pi agent 上下文检视——套 PanelFrame（头 = ScrollText + “上下文检视” + 会话短 id + 刷新）；body = 元信息条（模式/模型/ctx/成本/工具 chips）+ 系统提示词全文（mono 可滚动）；对象是当前活动会话，无活动会话时引导空态；工具首栏「检视」按钮为快捷入口（切 tab + 展开右栏）。
 - **审查 tab（ReviewPanel）**：头 = FileDiff + “改动审查 · <模式> <来源>”（ingest 来源 = raw 文件路径，如 `raw/002_夏本纪.md`；重启恢复的旧暂存无 meta 时显示「(重启恢复)」）+ meta(文件数) + 多会话选择器（pending>1 时，选项含来源短名）；body = 左文件清单 + 右着色 diff；footer = 应用全部/丢弃；空态“没有待审改动”。mode 标签：ingest=摄取 / lint=修复 / chat=会话 / edit=编辑(预留)。暂存会话元信息（mode/target/createdAt）持久化为 `.staging/<sid>.meta.json` 兄弟文件（目录外，避免被 walkStaged 收为暂存对象），apply/discard 清理时同删。
 - 待审 diff 到达 / 挂载发现未 dismissed pending / toast 点击 → 自动设 tab=审查 + 打开右栏；用户主动 X 关闭记入 dismissed，自动打开跳过 dismissed。
 

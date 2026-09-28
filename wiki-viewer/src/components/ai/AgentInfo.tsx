@@ -12,7 +12,7 @@ interface Props {
 const fmtK = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n)))
 
 /**
- * TopBar Agent 信息组：上下文用量 meter（迷你进度条 + 百分比，按占用变色）+ 累计成本。
+ * Agent 上下文用量 meter（由 AgentToolbar 工具首栏嵌入）：迷你进度条 + 百分比，按占用变色 + 累计成本。
  * 数据来自服务端 usage 事件（SDK ContextUsage: tokens / contextWindow / percent）。
  */
 export default function AgentInfo({ usage }: Props) {
