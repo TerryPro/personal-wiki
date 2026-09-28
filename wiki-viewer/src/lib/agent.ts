@@ -37,10 +37,21 @@ export interface DiffFile {
   diff: string
 }
 
-/** 上下文用量与成本（turn 结束时推送） */
+/** 会话累计 token 细分（服务端全量聚合：含 compaction/usage 条目，单调增长不因压缩回退） */
+export interface SessionTokens {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  total: number
+}
+
+/** 上下文用量与成本（SSE usage 事件 / 会话恢复接口的 usage 字段同形状） */
 export interface UsageInfo {
   cost: number
   contextUsage: Record<string, number> | null
+  /** 会话累计细分；冷会话无实时值时由服务端从磁盘转录重算 */
+  stats?: { tokens: SessionTokens; cost: number } | null
 }
 
 export type AgentStreamEvent =
@@ -60,7 +71,7 @@ export type AgentStreamEvent =
       result?: string | null
     }
   | { type: 'turn'; model: string | null; usage: { input: number; output: number; cacheRead: number } | null; cost: number }
-  | { type: 'usage'; cost: number; contextUsage: Record<string, number> | null }
+  | { type: 'usage'; cost: number; contextUsage: Record<string, number> | null; stats?: UsageInfo['stats'] }
   | { type: 'diffs'; sessionId: string; mode: string; target?: string; files: DiffFile[] }
   | { type: 'done' }
   | { type: 'error'; message: string }
@@ -240,8 +251,8 @@ export const getSessionMessages = (id: string) =>
     sessionId: string
     name: string | null
     messages: RestoredMessage[]
-    /** 活跃缓存会话的实时用量（cost + 上下文）；非活跃为 null */
-    usage?: { cost: number; contextUsage: Record<string, number> | null } | null
+    /** 活跃缓存会话的实时用量（cost + 上下文 + 累计细分）；冷会话仅细分（无实时上下文）；非活跃/无会话为 null */
+    usage?: UsageInfo | null
   }>(`/agent/sessions/${encodeURIComponent(id)}/messages?vaultId=${encodeURIComponent(_vaultId)}`)
 
 export const renameSession = (id: string, name: string) =>

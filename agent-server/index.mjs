@@ -36,6 +36,7 @@ import {
   setModeTools,
   sessionContextOrRestore,
   sessionUsage,
+  coldSessionStats,
 } from './lib/sessions.mjs'
 import { saveUploadedFiles, clipUrl, markIngested } from './lib/inbox.mjs'
 
@@ -159,7 +160,28 @@ function usageSnapshot(session) {
   try {
     contextUsage = session.getContextUsage?.() ?? null
   } catch { /* ignore */ }
-  return { cost: session.state?.cost ?? 0, contextUsage }
+  return { cost: session.state?.cost ?? 0, contextUsage, stats: statsSnapshot(session) }
+}
+
+/** 会话累计细分（tokens in/out/cache/cost）：优先 SDK getSessionStats，失败时回落磁盘条目重算 */
+function statsSnapshot(session) {
+  try {
+    const s = session.getSessionStats?.()
+    if (s?.tokens) {
+      const t = s.tokens
+      return {
+        tokens: {
+          input: t.input ?? 0,
+          output: t.output ?? 0,
+          cacheRead: t.cacheRead ?? 0,
+          cacheWrite: t.cacheWrite ?? 0,
+          total: t.total ?? (t.input ?? 0) + (t.output ?? 0) + (t.cacheRead ?? 0) + (t.cacheWrite ?? 0),
+        },
+        cost: Number((s.cost ?? 0).toFixed(6)),
+      }
+    }
+  } catch { /* ignore */ }
+  return null
 }
 
 /* ————— 流式会话执行（chat/task 共用骨架） ————— */
@@ -704,8 +726,12 @@ const server = createServer(async (req, res) => {
     const mMsg = p.match(/^\/agent\/sessions\/([^/]+)\/messages$/)
     if (req.method === 'GET' && mMsg) {
       const sid = decodeURIComponent(mMsg[1])
-      const r = await sessionMessages(sid, url.searchParams.get('vaultId'))
-      return r ? json(res, 200, { ...r, usage: sessionUsage(sid) }) : json(res, 404, { error: '会话不存在' })
+      const vid = url.searchParams.get('vaultId')
+      const r = await sessionMessages(sid, vid)
+      if (!r) return json(res, 404, { error: '会话不存在' })
+      // 活跃缓存会话：实时用量（含上下文占用）；冷会话：从磁盘转录重算累计细分（contextUsage 无实时值→前端占位）
+      const usage = sessionUsage(sid) ?? { cost: 0, contextUsage: null, stats: await coldSessionStats(sid, vid) }
+      return json(res, 200, { ...r, usage })
     }
     const mCtx = p.match(/^\/agent\/sessions\/([^/]+)\/context$/)
     if (req.method === 'GET' && mCtx) {

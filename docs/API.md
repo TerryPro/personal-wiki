@@ -33,14 +33,14 @@ Base: `http://127.0.0.1:8787`（仅 localhost）。dev 下经 vite proxy `/agent
 
 ### SSE 事件协议
 
-`session{sessionId,name,mode}` · `turnstart` · `delta{text}` · `thinking{text}` · `tool{id,name,state:'start'|'end',args?,isError?,durationMs?,result?}` · `turn{model,usage{input,output,cacheRead},cost}` · `usage{cost,contextUsage{tokens,contextWindow,percent}}`（流开始与结束各推一次） · `diffs{sessionId,mode,files[]}` · `done` · `error{message}`
+`session{sessionId,name,mode}` · `turnstart` · `delta{text}` · `thinking{text}` · `tool{id,name,state:'start'|'end',args?,isError?,durationMs?,result?}` · `turn{model,usage{input,output,cacheRead},cost}` · `usage{cost,contextUsage{tokens,contextWindow,percent},stats{tokens{input,output,cacheRead,cacheWrite,total},cost}}`（流开始与结束各推一次；`stats` 为会话累计全量聚合，含 compaction/usage 条目，不因压缩回退） · `diffs{sessionId,mode,files[]}` · `done` · `error{message}`
 
 ## 会话管理
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/agent/sessions?vaultId=` | `{sessions:[{id,name,created,modified,messageCount,firstMessage}]}` |
-| GET | `/agent/sessions/:id/messages?vaultId=` | `{sessionId,name,messages[],usage?}`；usage 仅活跃缓存会话有值 |
+| GET | `/agent/sessions/:id/messages?vaultId=` | `{sessionId,name,messages[],usage?}`；活跃缓存会话含实时 `contextUsage`+累计 `stats`，冷会话 `stats` 由磁盘转录重算（`contextUsage` 为 null） |
 | GET | `/agent/sessions/:id/context?vaultId=` | 上下文检视 `{active,mode,vaultId,model,systemPrompt,tools[],contextUsage,cost}`；系统提示运行时拼装，冷会话由 server 按磁盘转录懒恢复（mode=query，首次略慢）；会话不存在/无法恢复时 404 |
 | POST | `/agent/sessions/:id/rename` | body `{name, vaultId}` |
 | DELETE | `/agent/sessions/:id?vaultId=` | 删除会话文件 |

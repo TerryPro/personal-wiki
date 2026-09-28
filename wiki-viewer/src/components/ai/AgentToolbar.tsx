@@ -1,16 +1,10 @@
-import { Cog, Lightbulb, Minimize2, ScrollText, ShieldCheck } from 'lucide-react'
+import { Cog, Lightbulb, ListOrdered, Minimize2, ScrollText, ShieldCheck } from 'lucide-react'
 import AgentInfo from './AgentInfo'
-
-interface UsageInfo {
-  cost: number
-  tokens: number | null
-  contextWindow?: number | null
-  percent?: number | null
-}
+import type { StreamState } from '@/lib/agentStream'
 
 interface Props {
-  /** SSE usage 快照（ctx meter + 成本，复用 AgentInfo 呈现） */
-  usage: UsageInfo | null
+  /** SSE usage 快照（累计细分 + ctx 占用 + 成本，由 AgentInfo 徽章行呈现） */
+  usage: StreamState['usage']
   /** 当前会话模型显示名（点击打开左栏设置 tab） */
   modelDisplay: string
   onOpenSettings: () => void
@@ -21,13 +15,17 @@ interface Props {
   onCompact: () => void
   /** 打开右栏「上下文」tab 检视系统提示词与用量 */
   onOpenContext: () => void
+  /** 对话索引当前是否开启（mini/full 都算开） */
+  indexOn: boolean
+  /** 切换对话索引：off ↔ mini */
+  onToggleIndex: () => void
   activeId: string | null
   busy: boolean
 }
 
 /**
  * Agent 工具首栏：对话区顶部的 pi agent 信息与控制统一入口。
- * 左簇 = 信息（模型 / 思考档 / ctx 用量 / 成本）；右簇 = 控制与状态（上下文检视 / 审核门 / 压缩）。
+ * 左簇 = 信息（模型 / 思考档 / ctx 用量 / 成本）；右簇 = 控制与状态（对话索引 / 上下文检视 / 审核门 / 压缩）。
  * 检视内容在右栏 ContextPanel 展示，本栏只留入口。
  */
 export default function AgentToolbar({
@@ -38,6 +36,8 @@ export default function AgentToolbar({
   onThinkingCycle,
   onCompact,
   onOpenContext,
+  indexOn,
+  onToggleIndex,
   activeId,
   busy,
 }: Props) {
@@ -64,6 +64,15 @@ export default function AgentToolbar({
 
       {/* 右簇：控制与状态 */}
       <span className="ml-auto flex items-center gap-3">
+        <button
+          onClick={onToggleIndex}
+          aria-label="对话索引"
+          title={indexOn ? '关闭对话索引（minimap / 展开列表）' : '开启对话索引（minimap）'}
+          className={`flex items-center gap-1 rounded px-1 py-px transition-colors ${indexOn ? 'text-accent' : 'hover:text-fg'}`}
+        >
+          <ListOrdered size={11} />
+          索引
+        </button>
         <button
           onClick={onOpenContext}
           aria-label="上下文检视"

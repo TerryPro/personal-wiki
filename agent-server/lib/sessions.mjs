@@ -234,7 +234,59 @@ export async function disposeEntry(sessionId) {
 
 export const cachedEntry = (sessionId) => cache.get(sessionId) || null
 
-/** 活跃缓存会话的实时用量（cost + SDK 上下文占用）；非活跃会话返回 null */
+/**
+ * 累计用量细分（pi-web session-stats 同款口径）：对会话全部条目聚合，除 assistant/toolResult 消息外，
+ * 还计入 compaction / branch_summary / usage（如缓存预热，计费但不进上下文）条目携带的 usage，
+ * 因此总量随会话生命周期单调增长，compaction 摘要掉旧历史也不会回退计数。
+ */
+function sumEntriesStats(entries) {
+  const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+  let cost = 0
+  const add = (u) => {
+    if (!u) return
+    tokens.input += u.input ?? 0
+    tokens.output += u.output ?? 0
+    tokens.cacheRead += u.cacheRead ?? 0
+    tokens.cacheWrite += u.cacheWrite ?? 0
+    cost += u.cost?.total ?? 0
+  }
+  for (const e of entries ?? []) {
+    if (e.type === 'usage' || e.type === 'compaction' || e.type === 'branch_summary') {
+      add(e.usage)
+      continue
+    }
+    if (e.type === 'message' && (e.message?.role === 'assistant' || e.message?.role === 'toolResult')) add(e.message.usage)
+  }
+  tokens.total = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite
+  return { tokens, cost: Number(cost.toFixed(6)) }
+}
+
+/** 活跃缓存会话的累计细分：优先 SDK getSessionStats()（口径与本文件 sumEntriesStats 一致），异常时回落磁盘条目重算 */
+function statsSnapshot(session) {
+  try {
+    const s = session.getSessionStats?.()
+    if (s?.tokens) {
+      const t = s.tokens
+      return {
+        tokens: {
+          input: t.input ?? 0,
+          output: t.output ?? 0,
+          cacheRead: t.cacheRead ?? 0,
+          cacheWrite: t.cacheWrite ?? 0,
+          total: t.total ?? (t.input ?? 0) + (t.output ?? 0) + (t.cacheRead ?? 0) + (t.cacheWrite ?? 0),
+        },
+        cost: Number((s.cost ?? 0).toFixed(6)),
+      }
+    }
+  } catch { /* ignore */ }
+  try {
+    return sumEntriesStats(session.sessionManager?.getEntries?.())
+  } catch {
+    return null
+  }
+}
+
+/** 活跃缓存会话的实时用量（cost + SDK 上下文占用 + 累计细分）；非活跃会话返回 null */
 export function sessionUsage(sessionId) {
   const e = cache.get(sessionId)
   if (!e) return null
@@ -242,7 +294,18 @@ export function sessionUsage(sessionId) {
   try {
     contextUsage = e.session.getContextUsage?.() ?? null
   } catch { /* ignore */ }
-  return { cost: e.session.state?.cost ?? 0, contextUsage }
+  return { cost: e.session.state?.cost ?? 0, contextUsage, stats: statsSnapshot(e.session) }
+}
+
+/** 冷会话（不在活跃缓存）累计细分：只读磁盘转录重算，不懒恢复会话；找不到会话返回 null */
+export async function coldSessionStats(sessionId, vaultId) {
+  const vaultPath = getVaultPath(vaultId || getDefaultVaultId())
+  if (!vaultPath) return null
+  const infos = await SessionManager.list(vaultPath)
+  const info = infos.find((s) => s.id === sessionId || s.id.startsWith(sessionId))
+  if (!info) return null
+  const sm = SessionManager.open(info.path)
+  return sumEntriesStats(sm.getBranch())
 }
 
 /**

@@ -1,6 +1,6 @@
 // agentStream.ts — 会话流单例 store：SSE 消费与消息缓冲独立于 React 组件生命周期。
 // 切换模式（AiMode 卸载）不会中断进行中的流；重新挂载时回放缓冲并接续实时事件。
-import { type AgentStreamEvent, type TurnView } from './agent'
+import { type AgentStreamEvent, type SessionTokens, type TurnView } from './agent'
 import type { Msg } from '@/components/ai/ChatWindow'
 
 export interface StreamState {
@@ -13,6 +13,8 @@ export interface StreamState {
     tokens: number | null
     contextWindow: number | null
     percent: number | null
+    /** 会话累计细分（in/out/cache/cost，服务端全量聚合）；冷会话无实时值时也可展示 */
+    stats?: SessionTokens | null
   } | null
   lastModelName: string | null
   /** 会话列表脏标记（session 事件 / 流结束时 +1），AiMode 据此刷新侧栏 */
@@ -144,10 +146,12 @@ export async function runStream(
     else if (e.type === 'usage')
       set({
         usage: {
-          cost: e.cost,
+          // 冷会话快照 cost 为 0，回落细分里的聚合成本
+          cost: e.cost || e.stats?.cost || 0,
           tokens: e.contextUsage && typeof e.contextUsage.tokens === 'number' ? e.contextUsage.tokens : null,
           contextWindow: e.contextUsage && typeof e.contextUsage.contextWindow === 'number' ? e.contextUsage.contextWindow : null,
           percent: e.contextUsage && typeof e.contextUsage.percent === 'number' ? e.contextUsage.percent : null,
+          stats: e.stats?.tokens ?? null,
         },
       })
     else if (e.type === 'turn') {

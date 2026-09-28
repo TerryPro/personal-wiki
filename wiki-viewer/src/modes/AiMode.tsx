@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
-import { BookOpen, Bot, FileDiff, FileText, FolderTree, ListOrdered, Moon, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
+import { BookOpen, Bot, FileDiff, FileText, FolderTree, Moon, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
 import ModeSwitch from '@/components/ModeSwitch'
 import VaultSwitcher from '@/components/VaultSwitcher'
 import Brand from '@/components/Brand'
@@ -304,15 +304,16 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
         id,
         r.name,
       )
-      // 切换会话时同步该会话的实时用量（活跃缓存会话有值，冷会话为 null→占位）
+      // 切换会话时同步该会话的实时用量（活跃缓存会话有值；冷会话仅有磁盘重算的累计细分，上下文占用为 null→占位）
       const cu = r.usage?.contextUsage
       setStoreUsage(
         r.usage
           ? {
-              cost: r.usage.cost,
+              cost: r.usage.cost || r.usage.stats?.cost || 0,
               tokens: cu && typeof cu.tokens === 'number' ? cu.tokens : null,
               contextWindow: cu && typeof cu.contextWindow === 'number' ? cu.contextWindow : null,
               percent: cu && typeof cu.percent === 'number' ? cu.percent : null,
+              stats: r.usage.stats?.tokens ?? null,
             }
           : null,
       )
@@ -453,6 +454,8 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
         setRightTab('context')
         setRightOpen(true)
       }}
+      indexOn={indexMode !== 'off'}
+      onToggleIndex={() => setIndexMode((m) => (m === 'off' ? 'mini' : 'off'))}
       activeId={activeId}
       busy={busy}
     />
@@ -544,18 +547,6 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
         </div>
 
         <div className="flex items-center gap-2.5 text-[11px] text-fg-muted">
-          <button
-            onClick={() => setIndexMode((m) => (m === 'off' ? 'mini' : 'off'))}
-            aria-label="对话索引"
-            title="对话索引：minimap / 展开列表"
-            className={`rounded-md border p-1.5 transition-colors ${
-              indexMode !== 'off'
-                ? 'border-accent/60 bg-accent/10 text-accent'
-                : 'border-line bg-surface text-fg-secondary hover:border-accent/50 hover:text-accent'
-            }`}
-          >
-            <ListOrdered size={14} strokeWidth={1.9} />
-          </button>
           <button
             onClick={() => setRightOpen((v) => !v)}
             aria-label={rightOpen ? '收起右栏' : '展开右栏'}
