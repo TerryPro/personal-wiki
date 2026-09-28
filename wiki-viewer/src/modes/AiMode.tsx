@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
-import { Bot, FolderTree, ListOrdered, Moon, PanelLeft, PanelRight, Settings2, Sun } from 'lucide-react'
+import { BookOpen, Bot, FileDiff, FileText, FolderTree, ListOrdered, Moon, PanelLeft, PanelRight, Settings2, Sun } from 'lucide-react'
 import ModeSwitch from '@/components/ModeSwitch'
 import VaultSwitcher from '@/components/VaultSwitcher'
 import Brand from '@/components/Brand'
@@ -456,7 +456,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
               key={key}
               onClick={() => setLeftTab(key)}
               title={label}
-              className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1 text-[11.5px] transition-colors ${
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] transition-colors ${
                 leftTab === key ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
               }`}
             >
@@ -657,18 +657,20 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
             <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">
               <button
                 onClick={() => setRightTab('knowledge')}
-                className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1 text-[11.5px] transition-colors ${
+                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] transition-colors ${
                   rightTab === 'knowledge' ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
                 }`}
               >
+                <BookOpen size={12} strokeWidth={1.9} />
                 知识
               </button>
               <button
                 onClick={() => setRightTab('preview')}
-                className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1 text-[11.5px] transition-colors ${
+                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] transition-colors ${
                   rightTab === 'preview' ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
                 }`}
               >
+                <FileText size={12} strokeWidth={1.9} />
                 文档
               </button>
               <button
@@ -679,10 +681,11 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
                     if (t) setReviewSessionId(t.id)
                   }
                 }}
-                className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1 text-[11.5px] transition-colors ${
+                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] transition-colors ${
                   rightTab === 'review' ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
                 }`}
               >
+                <FileDiff size={12} strokeWidth={1.9} />
                 审查
                 {pendingFileCount > 0 && (
                   <span

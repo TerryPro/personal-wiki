@@ -342,22 +342,12 @@ export default function PageView({ page, onNavigate, onOutline, hl, view, onInge
           {rawMarkdown(page)}
         </pre>
       ) : view === 'split' ? (
-        <div className="grid gap-6 xl:grid-cols-2">
-          <section>
-            <div className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-fg-muted">阅读</div>
-            <div
-              ref={ref}
-              data-wv-scroll
-              className="prose-wiki max-h-[calc(100vh-190px)] overflow-y-auto rounded-card border border-line bg-surface/40 px-5 py-4"
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-          </section>
-          <section>
-            <div className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-fg-muted">源码</div>
-            <pre className="max-h-[calc(100vh-190px)] overflow-y-auto rounded-card border border-line bg-ink-soft p-5 font-mono text-[12px] leading-6 whitespace-pre-wrap text-fg-secondary">
-              {rawMarkdown(page)}
-            </pre>
-          </section>
+        /* 分栏对照：共用一个圆角边框容器，左右无缝相邻（border-l 分隔）；无各自滚动条，随中央列整体上下滚动 */
+        <div className="grid overflow-hidden rounded-card border border-line xl:grid-cols-2">
+          <div ref={ref} className="prose-wiki bg-surface/40 px-5 py-4" dangerouslySetInnerHTML={{ __html: html }} />
+          <pre className="border-t border-line bg-ink-soft p-5 font-mono text-[12px] leading-6 whitespace-pre-wrap text-fg-secondary xl:border-l xl:border-t-0">
+            {rawMarkdown(page)}
+          </pre>
         </div>
       ) : (
         <>
