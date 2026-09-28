@@ -236,8 +236,8 @@ body {
 
   /* ————— AI 聊天回答排版：紧凑专业（参考 pi-web 消息体）————— */
   .prose-chat {
-    /* 基线 11.5px：与工具行/思考盒/历史面板卡片严格统一（字号统一不走容器覆盖，避免层叠/HMR 歧义） */
-    font-size: 11.5px;
+    /* 基线 13.5px：聊天列「回答」卡是主内容，维持阅读级字号；历史面板卡片自行加 text-[11.5px] 压小 */
+    font-size: 13.5px;
     line-height: 1.75;
     @apply text-fg-secondary;
   }

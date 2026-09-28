@@ -98,41 +98,48 @@ export function AssistantBody({ text, onLink }: { text: string; onLink: (p: Wiki
     })
   }, [html, onLink])
   if (!html) return null
-  // 严格统一字号：覆盖 prose-chat 的 13.5px 基线，与工具行/思考盒及历史面板回答卡同为 11.5px（标题/代码等内部层级由 prose-chat 保留）
-  return <div ref={ref} className="prose-chat text-[11.5px]" dangerouslySetInnerHTML={{ __html: html }} />
+  // 回答卡维持 prose-chat 基线 13.5px（主内容阅读级字号）；过程元素（工具行/思考盒/旁白盒）才是 11.5px 紧凑档
+  return <div ref={ref} className="prose-chat" dangerouslySetInnerHTML={{ __html: html }} />
 }
 
-/** thinking 盒：灯泡图标 + 等宽文本，**默认直接展开**（只有一行时与收起态观感一致），点击可收拢为单行截断 */
+/** 短内容直接展开、长内容自动收拢的阈值（字符）：流式增长超过此长度即折叠，避免刷屏 */
+const AUTO_COLLAPSE_CHARS = 160
+
+/** thinking 盒：灯泡图标 + 等宽文本。短内容直接展开（单行观感不变）；流式中超阈值自动收拢为单行截断 + 字符数，点击可手动展开/收拢（手动优先于自动） */
 function ThinkingBox({ text }: { text: string }) {
-  const [open, setOpen] = useState(true)
+  const [userOpen, setUserOpen] = useState<boolean | null>(null)
   if (!text.trim()) return null
+  const open = userOpen ?? text.length <= AUTO_COLLAPSE_CHARS
   return (
     <button
-      onClick={() => setOpen((v) => !v)}
+      onClick={() => setUserOpen(!open)}
       title={open ? '收起思考过程' : '展开思考过程'}
       className="block w-full rounded-md border border-line bg-surface/60 px-2.5 py-1.5 text-left transition-colors hover:border-accent/40"
     >
       <span className={`flex items-start gap-1.5 font-mono text-[11.5px] leading-5 text-fg-secondary ${open ? '' : 'items-center'}`}>
-        <Lightbulb size={12} className="mt-[3px] shrink-0 text-fg-muted" />
-        <span className={open ? 'whitespace-pre-wrap' : 'truncate'}>{text}</span>
+        <Lightbulb size={12} className={`shrink-0 text-fg-muted ${open ? 'mt-[3px]' : ''}`} />
+        <span className={`min-w-0 flex-1 ${open ? 'whitespace-pre-wrap' : 'truncate'}`}>{text}</span>
+        {!open && <span className="shrink-0 opacity-60">{text.length.toLocaleString('en-US')} 字符</span>}
       </span>
     </button>
   )
 }
 
-/** 旁白盒：ThinkingBox 的完全镜像——同样的 mono 11.5px 文本直接铺开（不走 markdown 排版）、默认展开、点击收拢为单行截断，仅图标与颜色换为旁白语义（MessageSquareText + cat-raw） */
+/** 旁白盒：ThinkingBox 的完全镜像——mono 11.5px 直排（不走 markdown 排版），短内容直接展开、超阈值自动收拢为单行 + 字符数；图标/颜色换为旁白语义（MessageSquareText + cat-raw） */
 function NarrationBox({ text }: { text: string }) {
-  const [open, setOpen] = useState(true)
+  const [userOpen, setUserOpen] = useState<boolean | null>(null)
   if (!text.trim()) return null
+  const open = userOpen ?? text.length <= AUTO_COLLAPSE_CHARS
   return (
     <button
-      onClick={() => setOpen((v) => !v)}
+      onClick={() => setUserOpen(!open)}
       title={open ? '收起旁白' : '展开旁白'}
       className="block w-full rounded-md border border-cat-raw/40 bg-cat-raw/5 px-2.5 py-1.5 text-left transition-colors hover:border-cat-raw/60"
     >
       <span className={`flex items-start gap-1.5 font-mono text-[11.5px] leading-5 text-fg-secondary ${open ? '' : 'items-center'}`}>
         <MessageSquareText size={12} className={`shrink-0 text-cat-raw ${open ? 'mt-[3px]' : ''}`} />
-        <span className={open ? 'whitespace-pre-wrap' : 'truncate'}>{text}</span>
+        <span className={`min-w-0 flex-1 ${open ? 'whitespace-pre-wrap' : 'truncate'}`}>{text}</span>
+        {!open && <span className="shrink-0 opacity-60">{text.length.toLocaleString('en-US')} 字符</span>}
       </span>
     </button>
   )

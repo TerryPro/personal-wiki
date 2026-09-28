@@ -137,8 +137,8 @@
 ## 7. 聊天消息流（ChatWindow）
 
 - **按真实时序交错铺排**：每轮 = thinking → 文本卡（旁白/最终）→ 工具行 + usage（TurnHead/TurnTail 两段包裹）；pi 工具执行晚于文本生成，叙述恒在工具前。
-- **回答卡区分**：回答 = accent + `Sparkles` + 「回答」标签的大卡（`rounded-card px-4 py-2.5`）；旁白 = **与 ThinkingBox 同形制的紧凑盒**（NarrationBox：`rounded-md border px-2.5 py-1.5`、mono 11.5px），两者均**默认直接展开**（单行内容观感不变），点击收拢为单行截断；旁白盒是思考盒的完全镜像：mono 11.5px 文本直接铺开（不走 markdown 排版，保证与思考同风格），仅图标/颜色换为 `MessageSquareText` + `cat-raw` 浅蓝（盒体 `border-cat-raw/40 bg-cat-raw/5`）。**判定规则**：`isFinal = 最后一个有文本的轮 且 该轮无工具调用`——带工具的轮文本必在工具前生成，一律旁白；冷回放时服务端把每条 entry 作为单轮消息返回，若只看轮位置会把所有中间轮误标成回答（已修）。术语与历史面板对齐（旁白/回答），不用“结果”字样与工具出参区分。
-- **字号严格统一 11.5px**：`prose-chat` 基线已直接改为 11.5px（index.css，单一来源，不走容器覆盖以免层叠/HMR 歧义），与工具行/思考盒/历史面板卡片同字号（标题、代码芯片等内部层级仍由 prose-chat 保留）；用户消息气泡维持 13px。
+- **回答卡区分**：回答 = accent + `Sparkles` + 「回答」标签的大卡（`rounded-card px-4 py-2.5`）；旁白 = **与 ThinkingBox 同形制的紧凑盒**（NarrationBox：`rounded-md border px-2.5 py-1.5`、mono 11.5px）。两盒均为 ThinkingBox 镜像（mono 直排不走 markdown，仅图标/颜色不同：思考=灯泡+中性边框，旁白=`MessageSquareText`+`cat-raw` 浅蓝盒 `border-cat-raw/40 bg-cat-raw/5`）。**自适应折叠**：短内容（≤ `AUTO_COLLAPSE_CHARS 160` 字符）直接展开（单行观感不变），流式中超阈值自动收拢为单行截断 + 尾部「N 字符」计数；点击手动展开/收拢后以手动状态优先（`userOpen ?? 长度判定`），解决长思考全展开刷屏问题。**判定规则**：`isFinal = 最后一个有文本的轮 且 该轮无工具调用`——带工具的轮文本必在工具前生成，一律旁白；冷回放时服务端把每条 entry 作为单轮消息返回，若只看轮位置会把所有中间轮误标成回答（已修）。术语与历史面板对齐（旁白/回答），不用“结果”字样与工具出参区分。
+- **字号层级**：聊天列「回答」卡 = `prose-chat` 基线 **13.5px**（主内容阅读级字号，曾一度压到 11.5px 后用户要求恢复）；过程元素（工具行/思考盒/旁白盒）与历史面板卡片正文 = 11.5px（历史面板各卡自行加 `text-[11.5px]`）；标题、代码芯片等 markdown 内部层级由 prose-chat 保留；用户消息气泡 13px。
 - **用户消息折叠**：旧版技能 blob 折叠为命令头（可展开全文）；>160 字默认两行截断 + 展开/收起；短斜杠命令用芯片。
 - 消息锚点 `id=wv-msg-{i}` 供索引/minimap 跳转。
 
