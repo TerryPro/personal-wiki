@@ -389,29 +389,6 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     resetForNewSession()
   }
 
-  /** 分支切换后：按当前（新）leaf 重新拉取活动会话消息流 */
-  const reloadActive = async () => {
-    if (!activeId) return
-    try {
-      const r = await getSessionMessages(activeId)
-      loadSession(
-        r.messages.map((m) =>
-          m.role === 'user'
-            ? { role: 'user' as const, text: m.text ?? '', ts: m.ts ? new Date(m.ts).getTime() : Date.now() }
-            : {
-                role: 'assistant' as const,
-                turns: m.turns ?? [{ thinking: '', tools: [], text: m.text ?? '' }],
-                ts: m.ts ? new Date(m.ts).getTime() : Date.now(),
-              },
-        ),
-        activeId,
-        r.name,
-      )
-    } catch {
-      /* 忽略：历史面板会自行提示 */
-    }
-  }
-
   const doRename = async (id: string, name: string) => {
     try {
       await renameSession(id, name)
@@ -647,9 +624,9 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
           <PanelLeft size={14} strokeWidth={1.9} />
         </button>
 
-        {/* 当前会话 */}
+        {/* 当前会话：有 id 但未命名时显示「未命名会话」，避免把旧会话误标成「新会话」；仅无活动会话时才是新会话 */}
         <div className="min-w-0 flex-1 truncate text-[12.5px] text-fg-muted">
-          <span className="text-fg-secondary">{sessionName || (busy ? '新会话（进行中）' : '新会话')}</span>
+          <span className="text-fg-secondary">{sessionName || (activeId ? '未命名会话' : busy ? '新会话（进行中）' : '新会话')}</span>
           {activeId && <span className="ml-2 font-mono text-[10.5px] opacity-50">{activeId.slice(0, 8)}</span>}
         </div>
 
@@ -852,7 +829,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
             ) : rightTab === 'context' ? (
               <ContextPanel sessionId={activeId} />
             ) : rightTab === 'history' ? (
-              <HistoryPanel sessionId={activeId} busy={busy} onBranched={reloadActive} />
+              <HistoryPanel sessionId={activeId} />
             ) : (
               <PreviewPanel vaultId={activeVault} />
             )}

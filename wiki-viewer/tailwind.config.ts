@@ -31,7 +31,7 @@ export default {
           raw: 'hsl(var(--cat-raw) / <alpha-value>)',
           output: 'hsl(var(--cat-output) / <alpha-value>)',
         },
-        // 中间步骤卡片的浅红（复用 danger 红相，双主题适配）
+        // 历史面板回答卡的浅红（复用 danger 红相，双主题适配；聊天列旁白已改用 cat-raw 浅蓝）
         danger: 'hsl(var(--co-danger) / <alpha-value>)',
       },
       fontFamily: {

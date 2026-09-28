@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, ExternalLink, Hammer, Lightbulb, Loader2, PackagePlus, Sparkles, Terminal } from 'lucide-react'
+import { Check, ChevronDown, ExternalLink, Lightbulb, Loader2, MessageSquareText, PackagePlus, Sparkles, Terminal } from 'lucide-react'
 import { marked } from 'marked'
 import type { AgentToolCall, DiffFile, TurnView } from '@/lib/agent'
 import { hydrateWikiLinks } from '@/components/PageView'
@@ -98,12 +98,13 @@ export function AssistantBody({ text, onLink }: { text: string; onLink: (p: Wiki
     })
   }, [html, onLink])
   if (!html) return null
-  return <div ref={ref} className="prose-chat" dangerouslySetInnerHTML={{ __html: html }} />
+  // 严格统一字号：覆盖 prose-chat 的 13.5px 基线，与工具行/思考盒及历史面板回答卡同为 11.5px（标题/代码等内部层级由 prose-chat 保留）
+  return <div ref={ref} className="prose-chat text-[11.5px]" dangerouslySetInnerHTML={{ __html: html }} />
 }
 
-/** thinking 盒：灯泡图标 + 等宽单行截断，点击展开全文 */
+/** thinking 盒：灯泡图标 + 等宽文本，**默认直接展开**（只有一行时与收起态观感一致），点击可收拢为单行截断 */
 function ThinkingBox({ text }: { text: string }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   if (!text.trim()) return null
   return (
     <button
@@ -113,6 +114,24 @@ function ThinkingBox({ text }: { text: string }) {
     >
       <span className={`flex items-start gap-1.5 font-mono text-[11.5px] leading-5 text-fg-secondary ${open ? '' : 'items-center'}`}>
         <Lightbulb size={12} className="mt-[3px] shrink-0 text-fg-muted" />
+        <span className={open ? 'whitespace-pre-wrap' : 'truncate'}>{text}</span>
+      </span>
+    </button>
+  )
+}
+
+/** 旁白盒：ThinkingBox 的完全镜像——同样的 mono 11.5px 文本直接铺开（不走 markdown 排版）、默认展开、点击收拢为单行截断，仅图标与颜色换为旁白语义（MessageSquareText + cat-raw） */
+function NarrationBox({ text }: { text: string }) {
+  const [open, setOpen] = useState(true)
+  if (!text.trim()) return null
+  return (
+    <button
+      onClick={() => setOpen((v) => !v)}
+      title={open ? '收起旁白' : '展开旁白'}
+      className="block w-full rounded-md border border-cat-raw/40 bg-cat-raw/5 px-2.5 py-1.5 text-left transition-colors hover:border-cat-raw/60"
+    >
+      <span className={`flex items-start gap-1.5 font-mono text-[11.5px] leading-5 text-fg-secondary ${open ? '' : 'items-center'}`}>
+        <MessageSquareText size={12} className={`shrink-0 text-cat-raw ${open ? 'mt-[3px]' : ''}`} />
         <span className={open ? 'whitespace-pre-wrap' : 'truncate'}>{text}</span>
       </span>
     </button>
@@ -193,17 +212,25 @@ function UsageLine({ turn }: { turn: TurnView }) {
   )
 }
 
-/** 单个 turn 的过程渲染：模型名 → thinking → 工具行 → usage（回答文本在外层独立渲染） */
-function TurnBlock({ turn }: { turn: TurnView }) {
+/** 单个 turn 的过程渲染拆为两段，按真实时序交错：模型名 → thinking →（外层插入该轮文本）→ 工具行 → usage。
+ *  pi 的工具执行发生在 assistant 消息生成完毕之后，故叙述文本恒在前、工具行在后 */
+function TurnHead({ turn }: { turn: TurnView }) {
   return (
-    <div className="space-y-1.5">
+    <>
       {turn.model && <div className="text-[11px] text-fg-muted">{turn.model}</div>}
       {turn.thinking.trim() && <ThinkingBox text={turn.thinking} />}
+    </>
+  )
+}
+
+function TurnTail({ turn }: { turn: TurnView }) {
+  return (
+    <>
       {turn.tools.map((t, i) => (
         <ToolRow key={t.id ?? i} t={t} />
       ))}
       <UsageLine turn={turn} />
-    </div>
+    </>
   )
 }
 
@@ -374,8 +401,8 @@ export default function ChatWindow({ msgs, busy, onLink, onSave, onOpenReview }:
                   )}
                 </div>
               )
-            // assistant：按 turn 时序交错铺排——每轮的过程（thinking/工具/usage）紧跟该轮文本，
-            // 中间叙述（如“先写来源页”）与其工具调用同处，不再汇总成“最终结果 N 条”
+            // assistant：按真实时序交错铺排——每轮 thinking → 文本卡（旁白/最终）→ 工具行 + usage，
+            // 与工具执行晚于文本生成的实际顺序一致
             const isLast = i === msgs.length - 1
             const hasText = m.turns.some((t) => t.text.trim())
             const lastTextIdx = m.turns.reduce((acc, t, idx) => (t.text.trim() ? idx : acc), -1)
@@ -383,28 +410,25 @@ export default function ChatWindow({ msgs, busy, onLink, onSave, onOpenReview }:
             return (
               <div key={i} id={`wv-msg-${i}`} className="space-y-2.5">
                 {m.turns.map((t, k) => {
-                  const isFinal = k === lastTextIdx
-                  const stepNo = m.turns.slice(0, k).filter((x) => x.text.trim()).length + 1
+                  // 带工具调用的轮，其文本必在工具前生成（=旁白）；仅“最后一个有文本且不带工具”的轮才算回答。
+                  // 冷回放时服务端把每条 entry 作为单轮消息返回，若只看 lastTextIdx 会把所有中间轮误标成回答
+                  const isFinal = k === lastTextIdx && t.tools.length === 0
                   return (
                     <div key={k} className="space-y-1.5">
-                      <TurnBlock turn={t} />
-                      {t.text.trim() && (
-                        <div
-                          className={`rounded-card border px-4 py-2.5 ${
-                            isFinal ? 'border-accent/40 bg-accent/5' : 'border-danger/40 bg-danger/10'
-                          }`}
-                        >
-                          <div
-                            className={`mb-1 flex items-center gap-1.5 text-[10.5px] font-medium ${
-                              isFinal ? 'text-accent' : 'text-danger'
-                            }`}
-                          >
-                            {isFinal ? <Sparkles size={11} /> : <Hammer size={11} />}
-                            {isFinal ? '最终结果' : `中间步骤 ${stepNo}`}
+                      <TurnHead turn={t} />
+                      {t.text.trim() &&
+                        (isFinal ? (
+                          <div className="rounded-card border border-accent/40 bg-accent/5 px-4 py-2.5">
+                            <div className="mb-1 flex items-center gap-1.5 text-[10.5px] font-medium text-accent">
+                              <Sparkles size={11} /> 回答
+                            </div>
+                            <AssistantBody text={t.text} onLink={onLink} />
                           </div>
-                          <AssistantBody text={t.text} onLink={onLink} />
-                        </div>
-                      )}
+                        ) : (
+                          /* 旁白：与思考盒同形制的紧凑盒 */
+                          <NarrationBox text={t.text} />
+                        ))}
+                      <TurnTail turn={t} />
                     </div>
                   )
                 })}

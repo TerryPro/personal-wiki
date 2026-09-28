@@ -443,6 +443,25 @@ export async function sessionMessages(sessionId, vaultId, leafId) {
   return { sessionId: cached?.sessionId ?? sessionId, name: sm.getSessionName?.() ?? null, messages: out }
 }
 
+/** 按 content blocks 原始顺序生成 parts（真实时序：thinking/叙述文本/工具调用交错）；thinking 合并为一项，tool 引用 tools 数组下标 */
+function blocksParts(blocks, toolIndexById) {
+  const parts = []
+  let thinkingUsed = false
+  for (const b of blocks) {
+    if (!b) continue
+    if (b.type === 'thinking' && typeof b.thinking === 'string' && b.thinking.trim()) {
+      if (!thinkingUsed) { parts.push({ kind: 'thinking' }); thinkingUsed = true }
+    } else if (b.type === 'text' && typeof b.text === 'string' && b.text.trim()) {
+      parts.push({ kind: 'text', text: b.text })
+    } else if (b.type === 'toolCall' || b.type === 'tool_call' || b.type === 'toolUse') {
+      const id = b.id ?? b.toolCallId ?? null
+      const idx = id != null && toolIndexById.has(id) ? toolIndexById.get(id) : parts.filter((p) => p.kind === 'tool').length
+      parts.push({ kind: 'tool', toolIndex: idx })
+    }
+  }
+  return parts
+}
+
 /** 单条 entry 详情（供历史面板“只看选中这一条”）：工具结果按 toolCallId 全局匹配回填 */
 export async function sessionEntryDetail(sessionId, vaultId, entryId) {
   const sm = await openSmForRead(sessionId, vaultId)
@@ -472,6 +491,8 @@ export async function sessionEntryDetail(sessionId, vaultId, entryId) {
           const r = id ? results.get(id) : null
           return { id, name: b.name || b.toolName || 'tool', args: b.arguments ?? b.input ?? b.args ?? null, result: r?.text ?? null, isError: !!r?.isError }
         })
+      const toolIndexById = new Map()
+      tools.forEach((t, i) => { if (t.id != null && !toolIndexById.has(t.id)) toolIndexById.set(t.id, i) })
       return {
         ...base,
         role: 'assistant',
@@ -479,6 +500,7 @@ export async function sessionEntryDetail(sessionId, vaultId, entryId) {
         thinking: blocks.filter((b) => b && b.type === 'thinking' && typeof b.thinking === 'string').map((b) => b.thinking).join('\n'),
         text: blocksText(m.content),
         tools,
+        parts: blocksParts(blocks, toolIndexById),
         usage: m.usage ? { input: m.usage.input ?? 0, output: m.usage.output ?? 0, cacheRead: m.usage.cacheRead ?? 0 } : null,
         cost: m.usage?.cost?.total ?? null,
       }

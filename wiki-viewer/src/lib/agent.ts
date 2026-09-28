@@ -293,6 +293,12 @@ export interface EntryTool {
   isError: boolean
 }
 
+/** 单条 assistant entry 的真实时序片段：thinking 合并为一项；text 携带自身内容；tool 引用 tools 数组下标 */
+export type EntryPart =
+  | { kind: 'thinking' }
+  | { kind: 'text'; text: string }
+  | { kind: 'tool'; toolIndex: number }
+
 /** 单条 entry 详情（历史面板“只看选中这一条”） */
 export interface EntryDetail {
   sessionId: string
@@ -305,6 +311,8 @@ export interface EntryDetail {
   model?: string | null
   thinking?: string
   tools?: EntryTool[]
+  /** content blocks 原始顺序（旧数据可能无此字段，前端需降级为思考+工具+结果的分组布局） */
+  parts?: EntryPart[]
   usage?: { input: number; output: number; cacheRead: number } | null
   cost?: number | null
   summary?: string
@@ -315,18 +323,7 @@ export const getSessionEntryDetail = (id: string, entryId: string) =>
     `/agent/sessions/${encodeURIComponent(id)}/entry?vaultId=${encodeURIComponent(_vaultId)}&entryId=${encodeURIComponent(entryId)}`,
   )
 
-/** 切换活动会话的 leaf 到指定节点（同文件内 branch）；冷会话/忙时服务端返回错误（不抛异常，交 UI 处理） */
-export async function branchSession(id: string, entryId: string): Promise<{ ok: boolean; leafId?: string; error?: string }> {
-  const res = await fetch(`/agent/sessions/${encodeURIComponent(id)}/branch`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ entryId, vaultId: _vaultId }),
-  })
-  const data = (await res.json().catch(() => null)) as { ok?: boolean; leafId?: string; error?: string } | null
-  if (!res.ok || !data?.ok) return { ok: false, error: data?.error || `HTTP ${res.status}` }
-  return { ok: true, leafId: data.leafId }
-}
-
+/** 注：分支切换（POST /sessions/:id/branch）服务端仍保留，但前端已不提供入口——历史面板定位为只读分析 */
 
 export const renameSession = (id: string, name: string) =>
   postJson<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}/rename`, { name, vaultId: _vaultId })
