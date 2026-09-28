@@ -46,6 +46,9 @@
 │ (w-side) │                               │              │
 └──────────┴───────────────────────────────┴──────────────┘
 ```
+- 左栏四视图：`[目录 | 标签 | 待创建 | 精选]`。「精选」= 书签清单（悬停可移除）+ 最近打开（最多 12 条，可清空）；书签/最近按 vault 隔离持久化 `wv-starred` / `wv-recent`（`lib/library.ts` 版本 store，与 dataVersion 同构）；目录/最近条目带 ★ 徽标。
+- 搜索操作符（`lib/wiki.ts parseQuery`）：`tag:` · `cat:`（英文 key 或中文标签）· `"精确短语"` · `-排除`；多普通词为 AND；页内高亮仅取首个普通词（`primaryTerm`）。
+- 顶栏页面动作簇（阅读态）：视图三态循环 → `书签(Star toggle，已收藏实心)` → `导出 Markdown(Download，Blob 下载含 frontmatter)` → `复制为 LLM 上下文`；后两者同步收入命令面板动作。
 
 ### 2.3 工作模式（AiMode）
 ```
@@ -123,9 +126,9 @@
 - 顶部 tab：`[知识 | 文档 | 审查(n) | 上下文 | 历史]`，**永远可点**（不 disabled）；无内容时显示引导空态而非禁用。审查 tab 徽标 n = **待审文件总数**（跨会话求和），悬停提示补充会话数（如「1 个待审会话 · 共 37 个文件待审」）。tab 选择持久化 `wv-right-tab`（默认文档）。
 - **共享 chrome `PanelFrame`**：头 `h-9`（icon + title + meta + actions + close）+ body 填充 + 可选 footer。PreviewPanel/ReviewPanel 均套用它，风格统一。
 - **知识 tab（KnowledgePanel）**：vault 总览与入库管理——收件箱（拖拽上传/URL 剪藏）、待消化原料队列（逐个发起摄取，或「标记已消化」文字按钮人工标记；队尾附「已消化 N」折叠清单，自动消化标注来源页、人工标记带徽标）、健康问题（孤立页/断链/陈旧页，一键发起 lint 修复）、暂存待审列表（点击切到审查 tab）。根节点 `flex h-full flex-col overflow-y-auto` 自滚动，不套 PanelFrame。
-- **文档 tab（PreviewPanel）**：头 = FileText + path + size；actions = 渲染/源码切换；空态引导“在左栏「文件」中选择文件”。
+- **文档 tab（PreviewPanel）**：**多文档同时打开**——状态在模块级 store `lib/openDocs.ts`（按 vault 隔离持久化 `wv-open-docs`，上限 10 个 FIFO 挤退，切模式/切库不丢）；头 = FileText + 活跃文件名 + size（多开时 meta = `N 个 · size`）+ actions（「全部关闭」常显 + 渲染/源码切换；**无头部 X**，关闭入口 = tab chip × / 全部关闭）；>1 个时头下出现横向滚动 tab 条（chip 点击切换、悬停 × 关闭，关闭后活跃落相邻 tab）；内容会话内缓存（键含 vaultId）；源码态用共享组件 `NumberedSource`（左行号栏 + 右正文，每行同一 grid 行：折行时行号对齐首视觉行、空行由行号撑高；阅读模式 PageView 的源码/分栏视图同享）；渲染态复用阅读模式的 `hydrateWikiLinks` 解析 `[[双链]]`（悬停预览 + 断链样式，命中则 `openDoc` 为新 tab，路径经 `data.vault` 前缀削为 vault 相对键与文件树一致）；空态引导选文件（提示可多开）。
 - **上下文 tab（ContextPanel）**：pi agent 上下文检视——套 PanelFrame（头 = ScrollText + “上下文检视” + 会话短 id + 刷新）；body = 元信息条（模式/模型/ctx/成本/工具 chips）+ 系统提示词全文（mono 可滚动）；对象是当前活动会话，无活动会话时引导空态；工具首栏「检视」按钮为快捷入口（切 tab + 展开右栏）。
-- **历史 tab（HistoryPanel）**：会话完整历史——套 PanelFrame（头 = History + “会话历史” + 会话短 id + 刷新）；对象是当前活动会话，无活动会话时引导空态。上=**分支树**（`GET /sessions/:id/tree`，线性链折叠同一缩进、仅在分叉处降一级；当前 leaf→根活动路径高亮 + 徒章，分叉节点标 `×N`），下=选中节点的**单条详情**（`GET /sessions/:id/entry?entryId=`，只看这一条：角色/时间/模型/用量页脚 + 助手 thinking、工具折叠（含参数与结果）、prose-chat 正文；用户/压缩/分支摘要各自渲染）。工具区**默认展开第一级**：外层「处理详情」`<details open>` 露出 thinking + 工具清单，**每个工具调用也默认展开**（名字 + 入参直接可见）；只有执行结果下沉为折叠的第二级（summary =「结果 · N 字符」）。footer=「切到此分支继续」（`POST /sessions/:id/branch` 移动 leaf；busy/冷会话时禁用并提示，成功后回调重载聊天流）。只读浏览不改动历史，分支切换 append-only。**双形态排列**：默认上下堆叠（树在上、限高 46%）；当面板实宽 ≥ `WIDE_PX 720`（典型为顶栏选「面板」独占态，或双栏下把右栏拖宽）时由 `ResizeObserver` 自动切为**左右并排**（树列固定 `w-72` 居左 + `border-r` 分隔，详情居右占满），空态文案随之变“选择左侧节点”。观察器用**回调 ref** 建立（根节点是 `tree` 就绪后才条件渲染的，`useEffect(…, [])` + `ref.current` 会拿到 null 而永不生效）。
+- **历史 tab（HistoryPanel）**：会话完整历史——套 PanelFrame（头 = History + “会话历史” + 会话短 id + 刷新）；对象是当前活动会话，无活动会话时引导空态。上=**分支树**（`GET /sessions/:id/tree`，线性链折叠同一缩进、仅在分叉处降一级；当前 leaf→根活动路径高亮 + 徒章，分叉节点标 `×N`），下=选中节点的**单条详情**（`GET /sessions/:id/entry?entryId=`，只看这一条：角色/时间/模型/用量页脚 + 助手 thinking、工具折叠（含参数与结果）、prose-chat 正文；用户/压缩/分支摘要各自渲染）。工具区折叠分两级：外层「处理详情」`<details open>` 露出思考与工具清单；**思考 / 工具 / 正文结果三类内容统一为同构的一行标题卡片**（`rounded border + bg-ink-soft` 的 `<details>`，默认收起，summary =「思考/结果 · N 字符」或「✓/✗ 工具名 + 行尾灰度「入参 N · 出参 M 字符」（无则标「无入参/无出参」）」，单击整行展开收拢）：思考展开后 `max-h-60`、入参 `max-h-40`、工具结果 `max-h-60`、正文 `max-h-[28rem]`（prose-chat）均内部滚动，防止撑爆详情区（无共享 Foldable 组件，内联同构实现）。footer=「切到此分支继续」（`POST /sessions/:id/branch` 移动 leaf；busy/冷会话时禁用并提示，成功后回调重载聊天流）。只读浏览不改动历史，分支切换 append-only。**双形态排列**：默认上下堆叠（树在上、限高 46%）；当面板实宽 ≥ `WIDE_PX 720`（典型为顶栏选「面板」独占态，或双栏下把右栏拖宽）时由 `ResizeObserver` 自动切为**左右并排**（树列固定 `w-72` 居左 + `border-r` 分隔，详情居右占满），空态文案随之变“选择左侧节点”。观察器用**回调 ref** 建立（根节点是 `tree` 就绪后才条件渲染的，`useEffect(…, [])` + `ref.current` 会拿到 null 而永不生效）。
 - **审查 tab（ReviewPanel）**：头 = FileDiff + “改动审查 · <模式> <来源>”（ingest 来源 = raw 文件路径，如 `raw/002_夏本纪.md`；重启恢复的旧暂存无 meta 时显示「(重启恢复)」）+ meta(文件数) + 多会话选择器（pending>1 时，选项含来源短名）；body = 左文件清单 + 右着色 diff；footer = 应用全部/丢弃；空态“没有待审改动”。mode 标签：ingest=摄取 / lint=修复 / chat=会话 / edit=编辑(预留)。暂存会话元信息（mode/target/createdAt）持久化为 `.staging/<sid>.meta.json` 兄弟文件（目录外，避免被 walkStaged 收为暂存对象），apply/discard 清理时同删。
 - 待审 diff 到达 / 挂载发现未 dismissed pending / toast 点击 → 自动设 tab=审查 + 打开右栏；用户主动 X 关闭记入 dismissed，自动打开跳过 dismissed。
 

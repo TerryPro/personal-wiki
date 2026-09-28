@@ -144,27 +144,78 @@ export interface SearchHit {
   snippet: string
 }
 
+/* ————— 搜索操作符：tag: / cat: / "精确短语" / -排除，普通词为 AND 全命中 ————— */
+
+export interface ParsedQuery {
+  terms: string[] // 必须全部命中的普通词（已小写；引号短语也是一个 term）
+  nots: string[] // - 前缀词：任一命中即排除
+  tags: string[] // tag: 过滤（子串匹配标签名）
+  cats: string[] // cat: 过滤（归一化为 Category key）
+}
+
+/** cat: 值归一化：英文 key 直用，中文标签映射（与侧栏分组叫法对齐） */
+const CAT_BY_LABEL: Record<string, string> = {
+  来源: 'source',
+  实体: 'entity',
+  概念: 'concept',
+  综合: 'synthesis',
+  导航: 'meta',
+  原料: 'raw',
+  原始资料: 'raw',
+  成品: 'output',
+}
+
+export function parseQuery(q: string): ParsedQuery {
+  const res: ParsedQuery = { terms: [], nots: [], tags: [], cats: [] }
+  // 分词：引号短语（可带 - 前缀）或裸词
+  for (let tk of q.match(/-?"[^"]*"|-?[^\s"]+/g) ?? []) {
+    let neg = false
+    if (tk.startsWith('-')) {
+      neg = true
+      tk = tk.slice(1)
+    }
+    const bare = tk.replace(/^"|"$/g, '').trim()
+    if (!bare) continue
+    const m = bare.match(/^(tag|cat|category|type):(.+)$/i)
+    if (m && /^tag/i.test(m[1])) res.tags.push(m[2].toLowerCase())
+    else if (m && /^cat/i.test(m[1])) res.cats.push(CAT_BY_LABEL[m[2]] ?? m[2].toLowerCase())
+    else if (neg) res.nots.push(bare.toLowerCase())
+    else res.terms.push(bare.toLowerCase())
+  }
+  return res
+}
+
+/** 搜索态打开页面时的页内高亮词：只取首个普通词（操作符本身不该被高亮） */
+export const primaryTerm = (q: string) => parseQuery(q).terms[0] ?? ''
+
 export function search(q: string): SearchHit[] {
-  const needle = q.trim().toLowerCase()
-  if (!needle) return []
+  const pq = parseQuery(q)
+  if (!pq.terms.length && !pq.tags.length && !pq.cats.length) return []
   const hits: SearchHit[] = []
   for (const p of pages) {
+    const title = p.title.toLowerCase()
     const hay = p.content.toLowerCase()
-    const inTitle = p.title.toLowerCase().includes(needle)
-    const idx = hay.indexOf(needle)
-    if (inTitle || idx >= 0) {
-      const plain = p.content.replace(/^---[\s\S]*?---/, '').replace(/\s+/g, ' ')
-      const plainIdx = plain.toLowerCase().indexOf(needle)
-      const snippet =
-        plainIdx >= 0
-          ? (plainIdx > 40 ? '…' : '') + plain.slice(plainIdx - 20, plainIdx + needle.length + 60) + '…'
-          : p.excerpt.slice(0, 80) + '…'
-      hits.push({ page: p, snippet })
+    // 元数据海子串：slug/文件名/别名/标签，供普通词与 -排除 命中
+    const meta = `${p.slug} ${p.file} ${p.aliases.join(' ')} ${p.tags.join(' ')}`.toLowerCase()
+    if (pq.cats.length && !pq.cats.includes(p.category)) continue
+    if (pq.tags.length) {
+      const pt = p.tags.map((t) => t.toLowerCase())
+      if (!pq.tags.every((t) => pt.some((x) => x.includes(t)))) continue
     }
+    if (!pq.terms.every((t) => title.includes(t) || hay.includes(t) || meta.includes(t))) continue
+    if (pq.nots.some((t) => title.includes(t) || hay.includes(t) || meta.includes(t))) continue
+    const first = pq.terms.find((t) => hay.includes(t)) ?? pq.terms[0] ?? ''
+    const plain = p.content.replace(/^---[\s\S]*?---/, '').replace(/\s+/g, ' ')
+    const plainIdx = plain.toLowerCase().indexOf(first)
+    const snippet =
+      first && plainIdx >= 0
+        ? (plainIdx > 40 ? '…' : '') + plain.slice(plainIdx - 20, plainIdx + first.length + 60) + '…'
+        : p.excerpt.slice(0, 80) + '…'
+    hits.push({ page: p, snippet })
   }
   return hits.sort((a, b) => {
-    const ta = a.page.title.toLowerCase().includes(needle) ? 0 : 1
-    const tb = b.page.title.toLowerCase().includes(needle) ? 0 : 1
+    const ta = pq.terms.some((t) => a.page.title.toLowerCase().includes(t)) ? 0 : 1
+    const tb = pq.terms.some((t) => b.page.title.toLowerCase().includes(t)) ? 0 : 1
     return ta - tb || a.page.title.localeCompare(b.page.title, 'zh-CN')
   })
 }

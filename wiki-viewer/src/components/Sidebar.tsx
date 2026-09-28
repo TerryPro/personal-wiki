@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react'
-import { ChevronDown, CircleDashed, FileText, Tag } from 'lucide-react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { ChevronDown, CircleDashed, FileText, History, Star, Tag, X } from 'lucide-react'
 import Brand from '@/components/Brand'
 import { CATEGORY_META, brokenLinks, getPage, groupedByCategory, listTags, search } from '@/lib/wiki'
+import { clearRecent, getLibraryVersion, listRecent, listStarred, subscribeLibrary, toggleStar } from '@/lib/library'
 import type { Category, WikiPage } from '@/types'
 
 interface Props {
   activeId: string | null
+  vaultId: string
   query: string
   onQuery: (q: string) => void
   onOpen: (page: WikiPage) => void
@@ -13,15 +15,18 @@ interface Props {
   onHome?: () => void
 }
 
-type View = 'dir' | 'tag' | 'todo'
+type View = 'dir' | 'tag' | 'todo' | 'star'
 
 const VIEWS: [View, string, typeof Tag][] = [
   ['dir', '目录', FileText],
   ['tag', '标签', Tag],
   ['todo', '待创建', CircleDashed],
+  ['star', '精选', Star],
 ]
 
-export default function Sidebar({ activeId, query, onQuery, onOpen, onHome }: Props) {
+export default function Sidebar({ activeId, vaultId, query, onQuery, onOpen, onHome }: Props) {
+  // 订阅库状态：书签/最近变化即重渲染
+  useSyncExternalStore(subscribeLibrary, getLibraryVersion)
   const hits = query.trim() ? search(query) : null
   const [view, setView] = useState<View>('dir')
   const [openTag, setOpenTag] = useState<string | null>(null)
@@ -43,6 +48,13 @@ export default function Sidebar({ activeId, query, onQuery, onOpen, onHome }: Pr
       return next
     })
 
+  // 书签/最近（按当前 vault 隔离，过滤已不存在的页面）
+  const starredSet = new Set(listStarred(vaultId))
+  const starredPages = listStarred(vaultId).map(getPage).filter(Boolean) as WikiPage[]
+  const recentPages = listRecent(vaultId).filter((id) => id !== activeId).map(getPage).filter(Boolean) as WikiPage[]
+  const onRemoveStar = (id: string) => toggleStar(vaultId, id)
+  const onClearRecent = () => clearRecent(vaultId)
+
   return (
     <aside className="flex w-side shrink-0 flex-col border-r border-line bg-ink-soft">
       {/* brand（点击回首页） */}
@@ -59,7 +71,8 @@ export default function Sidebar({ activeId, query, onQuery, onOpen, onHome }: Pr
             id="wv-search"
             value={query}
             onChange={(e) => onQuery(e.target.value)}
-            placeholder="搜索全部页面…"
+            placeholder='搜索… 支持 tag: cat: "精确" -排除'
+            title='操作符：tag:标签名 · cat:source/来源 · "精确短语" · -排除词；多个普通词为 AND 全命中'
             className="w-full rounded-md border border-line bg-surface py-[7px] pl-8 pr-8 text-[13px] text-fg placeholder:text-fg-muted focus:border-accent/60 focus:outline-none focus:ring-2 focus:ring-accent/15"
           />
           {query && (
@@ -114,7 +127,13 @@ export default function Sidebar({ activeId, query, onQuery, onOpen, onHome }: Pr
               </button>
               )
             })}
-            {hits.length === 0 && <div className="px-1 py-6 text-center text-[12px] text-fg-muted">没有匹配的页面</div>}
+            {hits.length === 0 && (
+              <div className="px-1 py-6 text-center text-[12px] leading-6 text-fg-muted">
+                没有匹配的页面
+                <br />
+                <span className="font-mono text-[11px] opacity-80">tag: cat: "精确" -排除</span>
+              </div>
+            )}
           </div>
         ) : view === 'tag' ? (
           <div className="mt-2 space-y-[1px]">
@@ -187,6 +206,71 @@ export default function Sidebar({ activeId, query, onQuery, onOpen, onHome }: Pr
             })}
             {brokenLinks.length === 0 && <div className="px-1 py-6 text-center text-[12px] text-fg-muted">没有断链 — 所有引用都能跳转到真实页面 ✓</div>}
           </div>
+        ) : view === 'star' ? (
+          <div className="mt-2 space-y-5">
+            <section>
+              <div className="flex items-center gap-1.5 px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted">
+                <Star size={11} className="text-accent" />
+                书签
+                <span className="ml-auto font-mono text-[11px] opacity-70">{starredPages.length}</span>
+              </div>
+              <div className="space-y-[1px]">
+                {starredPages.map((p) => {
+                  const Icon = CATEGORY_META[p.category].icon
+                  const isActive = p.id === activeId
+                  return (
+                    <div key={p.id} className={`group flex items-center ${isActive ? 'rounded-md bg-accent/10' : ''}`}>
+                      <button onClick={() => onOpen(p)} title={p.title} className={`nav-item flex-1 ${isActive ? 'active' : ''}`}>
+                        <Icon size={13} strokeWidth={1.9} className={isActive ? 'shrink-0 text-accent' : 'shrink-0 text-fg-muted/70'} />
+                        <span className="truncate">{p.title}</span>
+                      </button>
+                      <button
+                        onClick={() => onRemoveStar(p.id)}
+                        aria-label="移除书签"
+                        title="移除书签"
+                        className="mr-1 shrink-0 rounded p-1 text-fg-muted opacity-0 transition-opacity hover:text-fg group-hover:opacity-100"
+                      >
+                        <X size={11} strokeWidth={2.2} />
+                      </button>
+                    </div>
+                  )
+                })}
+                {starredPages.length === 0 && (
+                  <div className="px-1 py-4 text-center text-[12px] leading-5 text-fg-muted">
+                    还没有书签 — 打开任意页面后点工具栏 <Star size={11} className="inline" /> 收藏
+                  </div>
+                )}
+              </div>
+            </section>
+            <section>
+              <div className="flex items-center gap-1.5 px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted">
+                <History size={11} className="text-fg-muted/70" />
+                最近打开
+                {recentPages.length > 0 && (
+                  <button
+                    onClick={() => onClearRecent()}
+                    className="ml-auto text-[10.5px] font-normal normal-case tracking-normal text-fg-muted/70 transition-colors hover:text-fg"
+                    title="清空当前库的最近记录"
+                  >
+                    清空
+                  </button>
+                )}
+              </div>
+              <div className="space-y-[1px]">
+                {recentPages.map((p) => {
+                  const Icon = CATEGORY_META[p.category].icon
+                  return (
+                    <button key={p.id} onClick={() => onOpen(p)} title={p.title} className="nav-item">
+                      <Icon size={13} strokeWidth={1.9} className="shrink-0 text-fg-muted/60" />
+                      <span className="truncate">{p.title}</span>
+                      {starredSet.has(p.id) && <Star size={10} className="ml-auto shrink-0 text-accent/70" />}
+                    </button>
+                  )
+                })}
+                {recentPages.length === 0 && <div className="px-1 py-4 text-center text-[12px] text-fg-muted">暂无访问记录</div>}
+              </div>
+            </section>
+          </div>
         ) : (
           groupedByCategory().map((g) => {
             const GroupIcon = CATEGORY_META[g.category].icon
@@ -213,6 +297,7 @@ export default function Sidebar({ activeId, query, onQuery, onOpen, onHome }: Pr
                   <button key={p.id} onClick={() => onOpen(p)} title={p.title} className={`nav-item ${isActive ? 'active' : ''}`}>
                     <Icon size={13} strokeWidth={1.9} className={isActive ? 'shrink-0 text-accent' : 'shrink-0 text-fg-muted/70'} />
                     <span className="truncate">{p.title}</span>
+                    {starredSet.has(p.id) && <Star size={10} className="ml-auto shrink-0 text-accent/70" />}
                     {p.category === 'raw' && (
                       <span
                         className={`ml-auto shrink-0 text-[11px] ${digested ? 'text-cat-entity' : 'text-cat-concept'}`}

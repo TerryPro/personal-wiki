@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, Code2, Columns2, Eye, FileArchive, Sparkles } from 'lucide-react'
 import { marked } from 'marked'
 import { highlightBlocks } from '@/lib/highlight'
+import { pageToMarkdown } from '@/lib/library'
 import { applyOutlineIds, data, getBacklinks, getPage, loadVault, outlineFromHtml, resolveTitle, CATEGORY_META } from '@/lib/wiki'
 import { markRawIngested } from '@/lib/agent'
+import NumberedSource from '@/components/NumberedSource'
 import { hidePreview, showPreview } from '@/lib/preview'
 import type { OutlineItem, WikiPage } from '@/types'
 
@@ -115,18 +117,7 @@ function rewriteEmbeds(body: string, vaultId: string): string {
   })
 }
 
-/** 源码视图的 frontmatter：优先用 sync 保留的原文（忠实展示自定义字段），旧快照缺 fmRaw 时回退到从已存字段重建 */
-function rawMarkdown(page: WikiPage): string {
-  if (page.fmRaw) return (page.fmRaw.endsWith('\n') ? page.fmRaw : page.fmRaw + '\n') + page.content
-  const lines = ['---']
-  if (page.tags.length) lines.push(`tags: [${page.tags.join(', ')}]`)
-  if (page.sources.length) lines.push(`sources: [${page.sources.join(', ')}]`)
-  if (page.aliases.length) lines.push(`aliases: [${page.aliases.map((a) => `"${a}"`).join(', ')}]`)
-  if (page.created) lines.push(`created: ${page.created}`)
-  if (page.updated) lines.push(`updated: ${page.updated}`)
-  lines.push('---', '')
-  return lines.join('\n') + page.content
-}
+/** 源码视图的忠实 Markdown 已提取到 lib/library.ts（pageToMarkdown），与导出下载共用单一实现 */
 
 /** 在渲染出的 DOM 里把文本节点中的 [[链接]] 替换为可点击元素；跳过 code/pre/a（AgentPanel 回答渲染也复用） */
 export function hydrateWikiLinks(root: HTMLElement, onHit: (target: string) => void) {
@@ -338,16 +329,18 @@ export default function PageView({ page, onNavigate, onOutline, hl, view, onInge
         </div>
       )}
       {view === 'source' ? (
-        <pre className="scroll-mt-4 rounded-card border border-line bg-ink-soft p-5 font-mono text-[12.5px] leading-6 whitespace-pre-wrap text-fg-secondary">
-          {rawMarkdown(page)}
-        </pre>
+        <NumberedSource
+          text={pageToMarkdown(page)}
+          className="scroll-mt-4 rounded-card border border-line bg-ink-soft p-5 font-mono text-[12.5px] leading-6 text-fg-secondary"
+        />
       ) : view === 'split' ? (
         /* 分栏对照：共用一个圆角边框容器，左右无缝相邻（border-l 分隔）；无各自滚动条，随中央列整体上下滚动 */
         <div className="grid overflow-hidden rounded-card border border-line xl:grid-cols-2">
           <div ref={ref} className="prose-wiki bg-surface/40 px-5 py-4" dangerouslySetInnerHTML={{ __html: html }} />
-          <pre className="border-t border-line bg-ink-soft p-5 font-mono text-[12px] leading-6 whitespace-pre-wrap text-fg-secondary xl:border-l xl:border-t-0">
-            {rawMarkdown(page)}
-          </pre>
+          <NumberedSource
+            text={pageToMarkdown(page)}
+            className="border-t border-line bg-ink-soft p-5 font-mono text-[12px] leading-6 text-fg-secondary xl:border-l xl:border-t-0"
+          />
         </div>
       ) : (
         <>

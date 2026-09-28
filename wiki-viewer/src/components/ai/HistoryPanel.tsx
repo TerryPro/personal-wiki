@@ -321,18 +321,31 @@ function DetailBody({ detail }: { detail: EntryDetail }) {
         <div className="space-y-2">
           {(detail.thinking || detail.tools?.length) && (
             <details open>
-              {/* 外层默认展开：直接露出 thinking 与工具清单 */}
+              {/* 外层默认展开：直接露出思考条目与工具清单；thinking 本身下沉为第二级折叠 */}
               <summary className="cursor-pointer select-none text-[10.5px] text-fg-muted">
                 处理详情{detail.tools?.length ? ` · ${detail.tools.length} 工具` : ''}
               </summary>
-              {detail.thinking && <p className="mt-1 border-l-2 border-line pl-2 text-[11px] italic leading-5 text-fg-muted">{detail.thinking}</p>}
-              <div className="mt-1 space-y-1">
+              {detail.thinking && (
+                <details className="mt-1 rounded border border-line/60 bg-ink-soft">
+                  {/* 思考与工具同构：默认收起为一行标题卡片，单击展开收拢 */}
+                  <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2 py-1 font-mono text-[10.5px] text-fg-muted">
+                    思考 · {detail.thinking.length.toLocaleString('en-US')} 字符
+                  </summary>
+                  <p className="max-h-60 overflow-auto border-t border-line/50 px-2 py-1 text-[11px] italic leading-5 whitespace-pre-wrap text-fg-muted">{detail.thinking}</p>
+                </details>
+              )}
+              <div className="mt-1 space-y-1.5">
                 {detail.tools?.map((tc, k) => (
-                  <details key={k} open className="rounded border border-line/60 bg-ink-soft">
-                    {/* 工具调用第一级默认展开：名字 + 入参直接可见；执行结果下沉为折叠的第二级 */}
+                  <details key={k} className="rounded border border-line/60 bg-ink-soft">
+                    {/* 工具默认收起为一行标题（尾部附入参/出参字符数），单击整行展开查看 */}
                     <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2 py-1 font-mono text-[10.5px] text-fg-muted">
                       <span className={tc.isError ? 'text-cat-concept' : 'text-cat-entity'}>{tc.isError ? '✗' : '✓'}</span>
                       {tc.name}
+                      <span className="ml-auto shrink-0 opacity-70">
+                        {tc.args != null ? `入参 ${JSON.stringify(tc.args).length.toLocaleString('en-US')}` : '无入参'}
+                        {' · '}
+                        {tc.result ? `出参 ${tc.result.length.toLocaleString('en-US')} 字符` : '无出参'}
+                      </span>
                     </summary>
                     {tc.args != null ? (
                       <pre className="max-h-40 overflow-auto border-t border-line/50 px-2 py-1 font-mono text-[10.5px] whitespace-pre-wrap text-fg-muted">
@@ -342,17 +355,9 @@ function DetailBody({ detail }: { detail: EntryDetail }) {
                       <div className="border-t border-line/50 px-2 py-1 font-mono text-[10.5px] text-fg-muted/70">（无参数）</div>
                     )}
                     {tc.result && (
-                      <details className="border-t border-line/50">
-                        <summary
-                          className="cursor-pointer select-none px-2 py-1 font-mono text-[10.5px] text-fg-muted hover:text-fg-secondary"
-                          title="展开查看完整输出"
-                        >
-                          结果 · {tc.result.length.toLocaleString('en-US')} 字符
-                        </summary>
-                        <pre className="max-h-60 overflow-auto border-t border-line/50 px-2 py-1 font-mono text-[11px] whitespace-pre-wrap text-fg-secondary">
-                          {tc.result}
-                        </pre>
-                      </details>
+                      <pre className="max-h-60 overflow-auto border-t border-line/50 px-2 py-1 font-mono text-[11px] whitespace-pre-wrap text-fg-secondary">
+                        {tc.result}
+                      </pre>
                     )}
                   </details>
                 ))}
@@ -360,7 +365,13 @@ function DetailBody({ detail }: { detail: EntryDetail }) {
             </details>
           )}
           {detail.text ? (
-            <div className="prose-chat text-[12.5px] text-fg" dangerouslySetInnerHTML={{ __html: marked.parse(detail.text, { async: false }) as string }} />
+            <details className="rounded border border-line/60 bg-ink-soft">
+              {/* 正文与思考/工具同构：默认收起为一行标题卡片，单击展开完整结果，限高滚动 */}
+              <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2 py-1 font-mono text-[10.5px] text-fg-muted">
+                结果 · {detail.text.length.toLocaleString('en-US')} 字符
+              </summary>
+              <div className="prose-chat max-h-[28rem] overflow-auto border-t border-line/50 px-3 py-2 text-[12.5px] text-fg" dangerouslySetInnerHTML={{ __html: marked.parse(detail.text, { async: false }) as string }} />
+            </details>
           ) : (
             !detail.tools?.length && !detail.thinking ? <div className="text-[12px] text-fg-muted">（无文本内容）</div> : null
           )}

@@ -15,6 +15,7 @@ import HistoryPanel from '@/components/ai/HistoryPanel'
 import AgentToolbar from '@/components/ai/AgentToolbar'
 import SessionIndex, { type IndexMode } from '@/components/ai/SessionIndex'
 import { loadVault } from '@/lib/wiki'
+import { getActiveDoc, getOpenDocs, openDoc, subscribeOpenDocs, getOpenDocsVersion } from '@/lib/openDocs'
 import SettingsPanel, { type ModelChoice } from '@/components/ai/SettingsPanel'
 import ChatSettings, { CHAT_PADY, DEFAULT_CHAT_CFG, type ChatCfg } from '@/components/ai/ChatSettings'
 import {
@@ -106,7 +107,8 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   // 左栏展开/收拢（持久化），与阅读模式 PanelLeft 开关对齐
   const [leftOpen, setLeftOpen] = useState(() => localStorage.getItem('wv-panel-l-ai') !== '0')
   useEffect(() => localStorage.setItem('wv-panel-l-ai', leftOpen ? '1' : '0'), [leftOpen])
-  const [previewPath, setPreviewPath] = useState<string | null>(null)
+  // 右栏「文档」多 tab 状态在模块级 store（lib/openDocs）：切模式/切库不丢已开文档
+  const openDocsVersion = useSyncExternalStore(subscribeOpenDocs, getOpenDocsVersion)
   // 右栏 [知识|文档|审查|上下文] tab 与当前审查会话；宽度拖拽持久化；rightOpen 为右栏整体开关
   const [rightTab, setRightTab] = useState<RightTab>(() => {
     const v = localStorage.getItem('wv-right-tab')
@@ -127,13 +129,13 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   const rightOpen = layout !== 'center'
   /** 右栏拉伸态：无中间列时 flex-1 占满主体区（tab 条保留，否则无法切面板） */
   const rightMain = layout === 'right'
-  /** 切换三选一布局：进入「面板」时若停在无对象的文档 tab，自动落到知识 tab（保证主体区不空） */
+  /** 切换三选一布局：进入「面板」时若文档 tab 没开任何文件，自动落到知识 tab（保证主体区不空） */
   const pickLayout = useCallback(
     (next: CrLayout) => {
       setLayout(next)
-      if (next === 'right' && rightTab === 'preview' && !previewPath) setRightTab('knowledge')
+      if (next === 'right' && rightTab === 'preview' && getOpenDocs(activeVault).docs.length === 0) setRightTab('knowledge')
     },
-    [rightTab, previewPath],
+    [rightTab, activeVault, openDocsVersion],
   )
   const [reviewSessionId, setReviewSessionId] = useState<string | null>(null)
   const [stagingPending, setStagingPending] = useState<StagingSessionInfo[]>([])
@@ -602,11 +604,11 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
           ) : leftTab === 'files' ? (
             <FileExplorer
               onPreview={(p) => {
-                setPreviewPath(p)
+                openDoc(activeVault, p)
                 setRightTab('preview')
                 revealRight()
               }}
-              activePath={previewPath}
+              activePath={getActiveDoc(activeVault)}
               online={online}
             />
           ) : (
@@ -852,7 +854,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
             ) : rightTab === 'history' ? (
               <HistoryPanel sessionId={activeId} busy={busy} onBranched={reloadActive} />
             ) : (
-              <PreviewPanel path={previewPath} onClose={() => setPreviewPath(null)} />
+              <PreviewPanel vaultId={activeVault} />
             )}
             {/* 拖拽柄只在双栏态出现：面板独占时已占满主体区，调宽无意义（回双栏用顶栏或 "） */}
             {!rightMain && (

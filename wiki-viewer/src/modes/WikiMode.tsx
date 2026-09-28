@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { Check, ClipboardCopy, Focus, House, List, Moon, PanelLeft, PanelRight, Sparkles, Sun } from 'lucide-react'
+import { Check, ClipboardCopy, Download, Focus, House, List, Moon, PanelLeft, PanelRight, Sparkles, Star, Sun } from 'lucide-react'
 import ModeSwitch from '@/components/ModeSwitch'
 import VaultSwitcher from '@/components/VaultSwitcher'
 import Sidebar from '@/components/Sidebar'
@@ -9,8 +9,9 @@ import GraphView from '@/components/GraphView'
 import CommandPalette from '@/components/CommandPalette'
 import HelpOverlay from '@/components/HelpOverlay'
 import ReaderSettings, { type ReaderCfg } from '@/components/ReaderSettings'
-import { data, getPage, healthReport, pages, resolveTitle, brokenLinks, buildLlmContext, digestion, getDataVersion, subscribeData, type PaletteAction } from '@/lib/wiki'
+import { data, getPage, healthReport, pages, primaryTerm, resolveTitle, brokenLinks, buildLlmContext, digestion, getDataVersion, subscribeData, type PaletteAction } from '@/lib/wiki'
 import { CATEGORY_META } from '@/lib/wiki'
+import { downloadMarkdown, getLibraryVersion, isStarred, pushRecent, subscribeLibrary, toggleStar } from '@/lib/library'
 import type { AgentTask, OutlineItem, VaultEntry, WikiPage } from '@/types'
 
 type Mode = 'read' | 'graph'
@@ -193,6 +194,8 @@ function Welcome({ onOpen, onLint, vaultName }: { onOpen: (p: WikiPage) => void;
 export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi, vaults, activeVault, onSwitchVault, onNewVault }: Props) {
   // 订阅数据版本：loadVault/刷新后重渲染，保证 Welcome/侧栏统计实时
   useSyncExternalStore(subscribeData, getDataVersion)
+  // 订阅库状态：书签/最近变化后工具栏星标同步
+  useSyncExternalStore(subscribeLibrary, getLibraryVersion)
   const [hist, setHist] = useState<{ stack: string[]; pos: number }>(() => {
     // 优先 URL 深链，其次恢复上次会话标签页，否则显示欢迎页
     const id = parseHash()?.id ?? localStorage.getItem('wv-last')
@@ -248,6 +251,11 @@ export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi, vaults
   const activeId = hist.pos >= 0 ? hist.stack[hist.pos] : null
   const page = activeId ? getPage(activeId) : null
 
+  // 记录最近打开（含深链进入与前后导航；顺序变化才触发重渲染）
+  useEffect(() => {
+    if (activeId) pushRecent(activeVault, activeId)
+  }, [activeId, activeVault])
+
   // 状态 → URL：活跃页变化时写入 hash（同值不重复 push）并持久化会话
   useEffect(() => {
     const target = activeId ? hashOf(activeId) : '#/wiki'
@@ -277,7 +285,7 @@ export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi, vaults
   }, [activeId])
 
   const open = useCallback((p: WikiPage) => {
-    setHl(queryRef.current.trim()) // 搜索态下打开页面：携带高亮词
+    setHl(primaryTerm(queryRef.current)) // 搜索态下打开页面：只携带首个普通词（操作符不高亮）
     setHist((h) => {
       if (h.stack[h.pos] === p.id) return h
       const stack = [...h.stack.slice(0, h.pos + 1), p.id]
@@ -386,8 +394,14 @@ export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi, vaults
       { id: 'help', label: '查看快捷键帮助', run: () => setHelp(true) },
       { id: 'ai', label: '进入工作模式（pi 智能体）', run: onSwitchToAi },
       { id: 'home', label: '回到首页（欢迎页）', run: () => setHist((h) => ({ ...h, pos: -1 })) },
+      ...(page
+        ? [
+            { id: 'star', label: `${isStarred(activeVault, page.id) ? '取消书签' : '加为书签'}：${page.title}`, run: () => toggleStar(activeVault, page.id) },
+            { id: 'export', label: `导出本页 Markdown：${page.title}`, run: () => downloadMarkdown(page) },
+          ]
+        : []),
     ],
-    [theme, setTheme, onSwitchToAi],
+    [theme, setTheme, onSwitchToAi, page, activeVault],
   )
 
   const synced = new Date(data.syncedAt)
@@ -395,7 +409,7 @@ export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi, vaults
 
   return (
     <div className="flex h-full">
-      {!zen && leftOpen && <Sidebar activeId={activeId} query={query} onQuery={setQuery} onOpen={open} onHome={goHome} />}
+      {!zen && leftOpen && <Sidebar activeId={activeId} vaultId={activeVault} query={query} onQuery={setQuery} onOpen={open} onHome={goHome} />}
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* toolbar */}
@@ -474,6 +488,26 @@ export default function WikiMode({ theme, setTheme, onTask, onSwitchToAi, vaults
                   const VIcon = NEXT_VIEW[view][2]
                   return <VIcon size={13} strokeWidth={1.9} />
                 })()}
+              </button>
+              <button
+                onClick={() => toggleStar(activeVault, page.id)}
+                aria-label={isStarred(activeVault, page.id) ? '取消书签' : '加为书签'}
+                title={isStarred(activeVault, page.id) ? '取消书签' : '加为书签（在侧栏「精选」视图回看）'}
+                className={`rounded-md border p-1.5 transition-colors ${
+                  isStarred(activeVault, page.id)
+                    ? 'border-accent/60 bg-accent/10 text-accent'
+                    : 'border-line bg-surface text-fg-secondary hover:border-accent/50 hover:text-accent'
+                }`}
+              >
+                <Star size={13} strokeWidth={1.9} fill={isStarred(activeVault, page.id) ? 'currentColor' : 'none'} />
+              </button>
+              <button
+                onClick={() => downloadMarkdown(page)}
+                aria-label="导出本页 Markdown"
+                title="下载整页 Markdown 源文件（含 frontmatter）"
+                className="rounded-md border border-line bg-surface p-1.5 text-fg-secondary transition-colors hover:border-accent/50 hover:text-accent"
+              >
+                <Download size={13} strokeWidth={1.9} />
               </button>
               <button
                 onClick={copyPage}
