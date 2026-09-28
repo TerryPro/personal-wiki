@@ -53,6 +53,7 @@ agent-server/tools.json
 /llmwiki/
 /pi-coding-agent/
 /shiji/
+/sanguozhi/
 
 # ——— 史记原始语料（转换脚本 convert-shiji.mjs 保留）———
 /documens/shiji_md/

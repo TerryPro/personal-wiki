@@ -40,7 +40,10 @@ Base: `http://127.0.0.1:8787`（仅 localhost）。dev 下经 vite proxy `/agent
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/agent/sessions?vaultId=` | `{sessions:[{id,name,created,modified,messageCount,firstMessage}]}` |
-| GET | `/agent/sessions/:id/messages?vaultId=` | `{sessionId,name,messages[],usage?}`；活跃缓存会话含实时 `contextUsage`+累计 `stats`，冷会话 `stats` 由磁盘转录重算（`contextUsage` 为 null） |
+| GET | `/agent/sessions/:id/messages?vaultId=&leafId=` | `{sessionId,name,messages[],usage?}`；`leafId` 省略时跟随当前 leaf 回放，传入时回放 root→该节点的分支（供历史预览）；活跃缓存会话含实时 `contextUsage`+累计 `stats`，冷会话 `stats` 由磁盘转录重算（`contextUsage` 为 null） |
+| GET | `/agent/sessions/:id/tree?vaultId=` | 完整历史分支树 `{sessionId,name,leafId,entryCount,truncated,tree[]}`；每节点 `{id,parentId,type,timestamp,label,role,preview,children}`；冷会话由 server 从磁盘懒恢复（首次略慢） |
+| GET | `/agent/sessions/:id/entry?vaultId=&entryId=` | 单条 entry 详情（历史面板“只看选中这一条”）；assistant 含 `thinking/tools[{name,args,result,isError}]/usage/cost/model`（工具结果按 toolCallId 全局回填），user 含 `text`，compaction/branch 含 `summary`；条目不存在 404 |
+| POST | `/agent/sessions/:id/branch` | body `{entryId, vaultId}`；将活动会话的 leaf 指针移到 `entryId`（同文件内 branch，append-only 不改历史），下一轮 `prompt` 从该分支起草。仅限**已打开且空闲**的会话；冷会话/忙/目标不存在返回 409 |
 | GET | `/agent/sessions/:id/context?vaultId=` | 上下文检视 `{active,mode,vaultId,model,systemPrompt,tools[],contextUsage,cost}`；系统提示运行时拼装，冷会话由 server 按磁盘转录懒恢复（mode=query，首次略慢）；会话不存在/无法恢复时 404 |
 | POST | `/agent/sessions/:id/rename` | body `{name, vaultId}` |
 | DELETE | `/agent/sessions/:id?vaultId=` | 删除会话文件 |

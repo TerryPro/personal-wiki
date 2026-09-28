@@ -100,6 +100,28 @@ export interface RestoredMessage {
   ts?: string | null
 }
 
+/** 会话完整历史的分支树节点（对应 agent-server sessionTree 序列化） */
+export interface SessionTreeNode {
+  id: string
+  parentId: string | null
+  type: string
+  timestamp: string | null
+  label: string | null
+  /** user | assistant | tool | system | compaction | branch | model | thinking | usage | <type> */
+  role: string
+  preview: string
+  children: SessionTreeNode[]
+}
+
+export interface SessionTree {
+  sessionId: string
+  name: string | null
+  leafId: string | null
+  entryCount: number
+  truncated: boolean
+  tree: SessionTreeNode[]
+}
+
 export interface FileEntry {
   name: string
   dir: boolean
@@ -246,14 +268,65 @@ export async function runTask(
 
 export const listSessions = () => getJson<{ sessions: SessionInfo[] }>(`/agent/sessions?vaultId=${encodeURIComponent(_vaultId)}`).then((r) => r.sessions)
 
-export const getSessionMessages = (id: string) =>
+export const getSessionMessages = (id: string, leafId?: string) =>
   getJson<{
     sessionId: string
     name: string | null
     messages: RestoredMessage[]
     /** 活跃缓存会话的实时用量（cost + 上下文 + 累计细分）；冷会话仅细分（无实时上下文）；非活跃/无会话为 null */
     usage?: UsageInfo | null
-  }>(`/agent/sessions/${encodeURIComponent(id)}/messages?vaultId=${encodeURIComponent(_vaultId)}`)
+  }>(
+    `/agent/sessions/${encodeURIComponent(id)}/messages?vaultId=${encodeURIComponent(_vaultId)}${
+      leafId ? `&leafId=${encodeURIComponent(leafId)}` : ''
+    }`,
+  )
+
+/** 会话完整历史分支树（只读；冷会话由 server 从磁盘懒恢复，首次略慢） */
+export const getSessionTree = (id: string) =>
+  getJson<SessionTree>(`/agent/sessions/${encodeURIComponent(id)}/tree?vaultId=${encodeURIComponent(_vaultId)}`)
+
+export interface EntryTool {
+  id: string | null
+  name: string
+  args: unknown
+  result: string | null
+  isError: boolean
+}
+
+/** 单条 entry 详情（历史面板“只看选中这一条”） */
+export interface EntryDetail {
+  sessionId: string
+  entryId: string
+  type: string
+  ts: string | null
+  /** user | assistant | compaction | branch | <type> */
+  role: string
+  text?: string
+  model?: string | null
+  thinking?: string
+  tools?: EntryTool[]
+  usage?: { input: number; output: number; cacheRead: number } | null
+  cost?: number | null
+  summary?: string
+  tokensBefore?: number | null
+}
+export const getSessionEntryDetail = (id: string, entryId: string) =>
+  getJson<EntryDetail>(
+    `/agent/sessions/${encodeURIComponent(id)}/entry?vaultId=${encodeURIComponent(_vaultId)}&entryId=${encodeURIComponent(entryId)}`,
+  )
+
+/** 切换活动会话的 leaf 到指定节点（同文件内 branch）；冷会话/忙时服务端返回错误（不抛异常，交 UI 处理） */
+export async function branchSession(id: string, entryId: string): Promise<{ ok: boolean; leafId?: string; error?: string }> {
+  const res = await fetch(`/agent/sessions/${encodeURIComponent(id)}/branch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entryId, vaultId: _vaultId }),
+  })
+  const data = (await res.json().catch(() => null)) as { ok?: boolean; leafId?: string; error?: string } | null
+  if (!res.ok || !data?.ok) return { ok: false, error: data?.error || `HTTP ${res.status}` }
+  return { ok: true, leafId: data.leafId }
+}
+
 
 export const renameSession = (id: string, name: string) =>
   postJson<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}/rename`, { name, vaultId: _vaultId })

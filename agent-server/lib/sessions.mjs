@@ -378,20 +378,25 @@ const blocksText = (content) => {
     .join('\n')
 }
 
-/** 线性回放主分支，把 JSONL entries 转成前端 turns 消息格式（pi-web 风格） */
-export async function sessionMessages(sessionId, vaultId) {
+/** 只读取会话的 SessionManager：优先复用热缓存实例（同一 JSONL 不可双实例打开），冷会话从磁盘 open 恢复 */
+async function openSmForRead(sessionId, vaultId) {
   const cached = cache.get(sessionId)
-  let sm = cached?.sm
+  if (cached?.sm) return cached.sm
   const vaultPath = cached?.vaultPath || getVaultPath(vaultId || getDefaultVaultId())
-  if (!sm) {
-    if (!vaultPath) return null
-    const infos = await SessionManager.list(vaultPath)
-    const info = infos.find((s) => s.id === sessionId || s.id.startsWith(sessionId))
-    if (!info) return null
-    sm = await SessionManager.open(info.path)
-  }
+  if (!vaultPath) return null
+  const infos = await SessionManager.list(vaultPath)
+  const info = infos.find((s) => s.id === sessionId || s.id.startsWith(sessionId))
+  if (!info) return null
+  return SessionManager.open(info.path)
+}
+
+/** 回放指定分支（leafId 省略时跟随当前 leaf），把 JSONL entries 转成前端 turns 消息格式（pi-web 风格） */
+export async function sessionMessages(sessionId, vaultId, leafId) {
+  const cached = cache.get(sessionId)
+  const sm = await openSmForRead(sessionId, vaultId)
+  if (!sm) return null
   const out = []
-  for (const e of sm.getBranch()) {
+  for (const e of sm.getBranch(leafId)) {
     if (e.type !== 'message' || !e.message) continue
     const m = e.message
     if (m.role === 'user') {
@@ -438,6 +443,53 @@ export async function sessionMessages(sessionId, vaultId) {
   return { sessionId: cached?.sessionId ?? sessionId, name: sm.getSessionName?.() ?? null, messages: out }
 }
 
+/** 单条 entry 详情（供历史面板“只看选中这一条”）：工具结果按 toolCallId 全局匹配回填 */
+export async function sessionEntryDetail(sessionId, vaultId, entryId) {
+  const sm = await openSmForRead(sessionId, vaultId)
+  if (!sm) return null
+  const all = sm.getEntries()
+  const entry = all.find((e) => e.id === entryId)
+  if (!entry) return null
+  // toolResult 是独立于 assistant 的条目，按 toolCallId 建立全局映射
+  const results = new Map()
+  for (const e of all) {
+    if (e.type === 'message' && (e.message?.role === 'toolResult' || e.message?.role === 'tool')) {
+      const m = e.message
+      const id = m.toolCallId ?? m.toolCall?.id ?? null
+      if (id) results.set(id, { text: blocksText(m.content), isError: !!m.isError })
+    }
+  }
+  const base = { sessionId, entryId, type: entry.type, ts: entry.timestamp ?? null }
+  if (entry.type === 'message' && entry.message) {
+    const m = entry.message
+    if (m.role === 'user') return { ...base, role: 'user', text: blocksText(m.content) }
+    if (m.role === 'assistant') {
+      const blocks = Array.isArray(m.content) ? m.content : []
+      const tools = blocks
+        .filter((b) => b && (b.type === 'toolCall' || b.type === 'tool_call' || b.type === 'toolUse'))
+        .map((b) => {
+          const id = b.id ?? b.toolCallId ?? null
+          const r = id ? results.get(id) : null
+          return { id, name: b.name || b.toolName || 'tool', args: b.arguments ?? b.input ?? b.args ?? null, result: r?.text ?? null, isError: !!r?.isError }
+        })
+      return {
+        ...base,
+        role: 'assistant',
+        model: m.model ?? m.provider ?? null,
+        thinking: blocks.filter((b) => b && b.type === 'thinking' && typeof b.thinking === 'string').map((b) => b.thinking).join('\n'),
+        text: blocksText(m.content),
+        tools,
+        usage: m.usage ? { input: m.usage.input ?? 0, output: m.usage.output ?? 0, cacheRead: m.usage.cacheRead ?? 0 } : null,
+        cost: m.usage?.cost?.total ?? null,
+      }
+    }
+    return { ...base, role: String(m.role || 'message'), text: blocksText(m.content) }
+  }
+  if (entry.type === 'compaction') return { ...base, role: 'compaction', summary: entry.summary ?? '', tokensBefore: entry.tokensBefore ?? null }
+  if (entry.type === 'branch_summary') return { ...base, role: 'branch', summary: entry.summary ?? '' }
+  return { ...base, role: entry.type, text: entryPreview(entry).preview }
+}
+
 export async function renameSession(sessionId, name, vaultId) {
   const cached = cache.get(sessionId)
   if (cached) {
@@ -464,4 +516,83 @@ export async function deleteSession(sessionId, vaultId) {
   if (!info) return false
   if (existsSync(info.path)) rmSync(info.path)
   return true
+}
+
+/* ————— 会话完整历史：分支树 + 只读回放 + 分支切换 ————— */
+
+const MAX_TREE_NODES = 3000
+
+/** 从单个 session entry 提取角色与瘦身预览（供前端分支树展示） */
+function entryPreview(entry) {
+  if (entry.type === 'message' && entry.message) {
+    const m = entry.message
+    if (m.role === 'user') return { role: 'user', preview: blocksText(m.content).slice(0, 140) }
+    if (m.role === 'assistant') return { role: 'assistant', preview: blocksText(m.content).slice(0, 140) }
+    if (m.role === 'toolResult' || m.role === 'tool') return { role: 'tool', preview: '' }
+    if (m.role === 'system') return { role: 'system', preview: blocksText(m.content).slice(0, 140) }
+    return { role: String(m.role || 'message'), preview: '' }
+  }
+  if (entry.type === 'compaction') return { role: 'compaction', preview: String(entry.summary || '').slice(0, 140) }
+  if (entry.type === 'branch_summary') return { role: 'branch', preview: String(entry.summary || '').slice(0, 140) }
+  if (entry.type === 'model_change') return { role: 'model', preview: `${entry.provider}/${entry.modelId}` }
+  if (entry.type === 'thinking_level_change') return { role: 'thinking', preview: String(entry.thinkingLevel ?? '') }
+  if (entry.type === 'usage') return { role: 'usage', preview: String(entry.kind ?? '') }
+  return { role: entry.type, preview: '' }
+}
+
+/** 序列化分支树（带节点预算保护，防止超长转录拖慢）；budget 耗尽时提前截断子树 */
+function serializeTree(nodes, state) {
+  const out = []
+  for (const node of nodes) {
+    if (state.budget <= 0) break
+    state.budget--
+    const { role, preview } = entryPreview(node.entry)
+    const children = state.budget > 0 ? serializeTree(node.children, state) : []
+    out.push({
+      id: node.entry.id,
+      parentId: node.entry.parentId ?? null,
+      type: node.entry.type,
+      timestamp: node.entry.timestamp ?? null,
+      label: node.label ?? null,
+      role,
+      preview,
+      children,
+    })
+  }
+  return out
+}
+
+/** 返回会话的完整分支树 + 当前 leaf（只读，冷会话从磁盘恢复） */
+export async function sessionTree(sessionId, vaultId) {
+  const sm = await openSmForRead(sessionId, vaultId)
+  if (!sm) return null
+  const state = { budget: MAX_TREE_NODES }
+  const tree = serializeTree(sm.getTree(), state)
+  return {
+    sessionId,
+    name: sm.getSessionName?.() ?? null,
+    leafId: sm.getLeafId?.() ?? null,
+    entryCount: sm.getEntries().length,
+    truncated: state.budget <= 0,
+    tree,
+  }
+}
+
+/** 切换活动会话的 leaf 到指定 entry（同文件内 branch，不新建会话文件）；仅限已打开且空闲的会话 */
+export async function branchSession(sessionId, entryId) {
+  const cached = cache.get(sessionId)
+  if (!cached) return { ok: false, error: '会话未打开，请先在左栏「会话」中打开该会话后再切换分支' }
+  if (cached.busy) return { ok: false, error: '会话正在进行中，请等待本轮结束后再切换分支' }
+  // 收集需同步 leaf 的实例：读路径用 cached.sm；若 session 持有另一实例则一并移动
+  const managers = []
+  if (cached.sm) managers.push(cached.sm)
+  const live = cached.session?.sessionManager
+  if (live && live !== cached.sm) managers.push(live)
+  if (!managers.length) return { ok: false, error: '会话未就绪' }
+  if (!managers[0].getEntry?.(entryId)) return { ok: false, error: '目标节点不存在' }
+  // 用 SessionManager.branch 纯移动 leaf 指针（append-only、不改历史）；
+  // 下一轮 prompt 会作为该节点子代追写 → 从该分支继续。不用 navigateTree（它有 TUI 专属语义，会落到产物节点）
+  for (const sm of managers) sm.branch(entryId)
+  cached.lastActive = Date.now()
+  return { ok: true, leafId: entryId }
 }

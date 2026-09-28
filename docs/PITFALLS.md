@@ -28,15 +28,16 @@
 13. **标题栏高度不齐** → py-* 撑高随内容行高漂移 → 统一固定 `h-9 + items-center`（全项目二级标题栏/tab 条）；顶栏/Brand 固定 46px。
 14. **双态侧栏切换跳动** → 行高/头高不固定 → 固定 `h-11` 行 / `h-9` 头，两态共用同一套行。
 15. **输入框文字不居中** → 容器 `items-end`（为多行贴底）使单行 textarea 沉底 → 改 `items-center`。
+16. **面板宽度自适应不生效（一直停在窄态）** → `useEffect(…, [])` 里用 `ref.current` 建 `ResizeObserver`，但节点是数据就绪后才条件渲染的，首挂载拿到 null → 观察器永不建立 → 改用**回调 ref** 在节点出现时 observe（+ 卸载时 disconnect）。
 
 ## 工具 / 环境
 
-16. **DeleteFile 报成功但文件仍在** → 偶发最终一致问题 → 删除后 `Test-Path` 校验，必要时重试。
-17. **JSDoc 注释里写 `.staging/*/`** → `*/` 提前终止块注释 → 注释内避免 `*/` 字面量。
-18. **PowerShell 无 `head`** → 用 `Select-Object -First N`；后台起 server 后立刻查询可能端口未就绪（connection refused），稍等重试。
-19. **npm install 偶发 ParserError** → Windows PowerShell 后台终端解析错乱 → 用 `--prefix` 形式或前台执行。
-20. **turndown 剪藏空正文** → JS 渲染/反爬页 → 报错提示并建议 Obsidian Web Clipper。
+17. **DeleteFile 报成功但文件仍在** → 偶发最终一致问题 → 删除后 `Test-Path` 校验，必要时重试。
+18. **JSDoc 注释里写 `.staging/*/`** → `*/` 提前终止块注释 → 注释内避免 `*/` 字面量。
+19. **PowerShell 无 `head`** → 用 `Select-Object -First N`；后台起 server 后立刻查询可能端口未就绪（connection refused），稍等重试。
+20. **npm install 偶发 ParserError** → Windows PowerShell 后台终端解析错乱 → 用 `--prefix` 形式或前台执行。
+21. **turndown 剪藏空正文** → JS 渲染/反爬页 → 报错提示并建议 Obsidian Web Clipper。
 
 ## 摄取策略
 
-21. **一次摄取全部文档失败/质量差** → 上下文+输出超限、diff 不可审 → 按主题分批 ≤8–10 篇；跨文档共同概念聚合建页避免重复。
+22. **一次摄取全部文档失败/质量差** → 上下文+输出超限、diff 不可审 → 按主题分批 ≤8–10 篇；跨文档共同概念聚合建页避免重复。

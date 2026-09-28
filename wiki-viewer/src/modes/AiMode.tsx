@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
-import { BookOpen, Bot, FileDiff, FileText, FolderTree, Moon, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
+import { BookOpen, Bot, Columns2, FileDiff, FileText, FolderTree, History, MessageSquare, Moon, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
 import ModeSwitch from '@/components/ModeSwitch'
 import VaultSwitcher from '@/components/VaultSwitcher'
 import Brand from '@/components/Brand'
@@ -11,6 +11,7 @@ import FileExplorer from '@/components/ai/FileExplorer'
 import PreviewPanel from '@/components/ai/PreviewPanel'
 import ReviewPanel from '@/components/ai/ReviewPanel'
 import ContextPanel from '@/components/ai/ContextPanel'
+import HistoryPanel from '@/components/ai/HistoryPanel'
 import AgentToolbar from '@/components/ai/AgentToolbar'
 import SessionIndex, { type IndexMode } from '@/components/ai/SessionIndex'
 import { loadVault } from '@/lib/wiki'
@@ -73,13 +74,26 @@ interface Props {
 }
 
 type LeftTab = 'sessions' | 'files' | 'settings'
-type RightTab = 'knowledge' | 'preview' | 'review' | 'context'
+type RightTab = 'knowledge' | 'preview' | 'review' | 'context' | 'history'
+/** 主体区三选一布局：中间列 / 右栏 / 两者并存（左栏为独立开关，不参与） */
+type CrLayout = 'center' | 'right' | 'both'
 
 const TABS: { key: LeftTab; label: string; icon: typeof Bot }[] = [
   { key: 'sessions', label: '会话', icon: Bot },
   { key: 'files', label: '文件', icon: FolderTree },
   { key: 'settings', label: '设置', icon: Settings2 },
 ]
+
+const LAYOUTS: { key: CrLayout; label: string; icon: typeof Bot; hint: string }[] = [
+  { key: 'center', label: '对话', icon: MessageSquare, hint: '只看中间聊天列（对话优先，右栏收起）' },
+  { key: 'right', label: '面板', icon: PanelRight, hint: '只看右侧面板（沉浸审查/阅读，面板占满主体区）' },
+  { key: 'both', label: '双栏', icon: Columns2, hint: '聊天列 + 右侧面板并排（边问边审）' },
+]
+
+/** 拖拽分栏的宽度边界：自由拖动，拖到边界外再多拖 DRAG_OVERSHOOT 即关闭对应面板 */
+const RIGHT_MIN = 260 // 右栏最小宽，再窄就关右栏
+const CENTER_MIN = 320 // 聊天列最小宽，再窄就关聊天列
+const DRAG_OVERSHOOT = 28 // 越界缓冲：先卡在最小宽 + 红线提示，再多拖此距离才提交关闭
 
 export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, onTaskConsumed, onOpenWikiPage, vaults, activeVault, onSwitchVault, onNewVault, reviewRequest, onReviewRequestConsumed }: Props) {
   const [online, setOnline] = useState<boolean | null>(null)
@@ -96,20 +110,42 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   // 右栏 [知识|文档|审查|上下文] tab 与当前审查会话；宽度拖拽持久化；rightOpen 为右栏整体开关
   const [rightTab, setRightTab] = useState<RightTab>(() => {
     const v = localStorage.getItem('wv-right-tab')
-    return v === 'review' || v === 'knowledge' || v === 'context' ? v : 'preview'
+    return v === 'review' || v === 'knowledge' || v === 'context' || v === 'history' ? v : 'preview'
   })
   useEffect(() => localStorage.setItem('wv-right-tab', rightTab), [rightTab])
-  const [rightOpen, setRightOpen] = useState(() => localStorage.getItem('wv-panel-r-ai') === '1')
-  useEffect(() => localStorage.setItem('wv-panel-r-ai', rightOpen ? '1' : '0'), [rightOpen])
+  // 主体区布局（三选一，持久化）；由它派生中间列/右栏的可见性与右栏拉伸态，因此不会出现两者皆空的布局
+  const [layout, setLayout] = useState<CrLayout>(() => {
+    const v = localStorage.getItem('wv-layout-cr')
+    if (v === 'center' || v === 'right' || v === 'both') return v
+    // 旧版双开关键迁移
+    const c = localStorage.getItem('wv-panel-c-ai') !== '0'
+    const r = localStorage.getItem('wv-panel-r-ai') === '1'
+    return c && r ? 'both' : r ? 'right' : 'center'
+  })
+  useEffect(() => localStorage.setItem('wv-layout-cr', layout), [layout])
+  const centerOpen = layout !== 'right'
+  const rightOpen = layout !== 'center'
+  /** 右栏拉伸态：无中间列时 flex-1 占满主体区（tab 条保留，否则无法切面板） */
+  const rightMain = layout === 'right'
+  /** 切换三选一布局：进入「面板」时若停在无对象的文档 tab，自动落到知识 tab（保证主体区不空） */
+  const pickLayout = useCallback(
+    (next: CrLayout) => {
+      setLayout(next)
+      if (next === 'right' && rightTab === 'preview' && !previewPath) setRightTab('knowledge')
+    },
+    [rightTab, previewPath],
+  )
   const [reviewSessionId, setReviewSessionId] = useState<string | null>(null)
   const [stagingPending, setStagingPending] = useState<StagingSessionInfo[]>([])
   // 对话索引：off 关闭 / mini 收缩 minimap / full 展开侧栏；默认 mini
   const [indexMode, setIndexMode] = useState<'off' | IndexMode>('mini')
   const [rightW, setRightW] = useState(() => {
     const n = Number(localStorage.getItem('wv-right-w'))
-    return n >= 340 && n <= 760 ? n : 460
+    return n >= RIGHT_MIN ? n : 460
   })
   useEffect(() => localStorage.setItem('wv-right-w', String(rightW)), [rightW])
+  // 拖拽越界时的关闭预示（指示线变红）：right = 将关右栏，center = 将关聊天列
+  const [dragZone, setDragZone] = useState<null | 'right' | 'center'>(null)
   const [model, setModel] = useState<ModelChoice | null>(() => {
     try {
       return JSON.parse(localStorage.getItem('wv-ai-model') ?? 'null')
@@ -194,6 +230,29 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshSessions])
+
+  // 离线守卫：独占面板布局下右栏不渲染（也无对话入口），强制回到对话布局以保证离线引导可见
+  useEffect(() => {
+    if (online === false && layout === 'right') setLayout('center')
+  }, [online, layout])
+
+  // 全局快捷键：" 循环三选一布局，[ 切换左栏（输入控件聚焦时不触发）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      if (/input|textarea/i.test((e.target as HTMLElement)?.tagName) || (e.target as HTMLElement)?.isContentEditable) return
+      if (e.key === '"') {
+        e.preventDefault()
+        const order: CrLayout[] = ['center', 'right', 'both']
+        pickLayout(order[(order.indexOf(layout) + 1) % order.length] ?? 'center')
+      } else if (e.key === '[') {
+        e.preventDefault()
+        setLeftOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [layout, pickLayout])
 
   const send = () => {
     const q = input.trim()
@@ -328,6 +387,29 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     resetForNewSession()
   }
 
+  /** 分支切换后：按当前（新）leaf 重新拉取活动会话消息流 */
+  const reloadActive = async () => {
+    if (!activeId) return
+    try {
+      const r = await getSessionMessages(activeId)
+      loadSession(
+        r.messages.map((m) =>
+          m.role === 'user'
+            ? { role: 'user' as const, text: m.text ?? '', ts: m.ts ? new Date(m.ts).getTime() : Date.now() }
+            : {
+                role: 'assistant' as const,
+                turns: m.turns ?? [{ thinking: '', tools: [], text: m.text ?? '' }],
+                ts: m.ts ? new Date(m.ts).getTime() : Date.now(),
+              },
+        ),
+        activeId,
+        r.name,
+      )
+    } catch {
+      /* 忽略：历史面板会自行提示 */
+    }
+  }
+
   const doRename = async (id: string, name: string) => {
     try {
       await renameSession(id, name)
@@ -348,12 +430,15 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     }
   }
 
+  /** 需要右栏亮相时的布局：已在面板/双栏态则保持，否则升到双栏 */
+  const revealRight = useCallback(() => setLayout((v) => (v === 'center' ? 'both' : v)), [])
+
   /** 打开右栏审查面板（手动打开不受 dismissed 限制） */
   const openReview = useCallback((id: string) => {
     undismissReview(id)
     setReviewSessionId(id)
     setRightTab('review')
-    setRightOpen(true)
+    setLayout((v) => (v === 'center' ? 'both' : v))
   }, [])
 
   // diffs 事件 → 自动打开审查（跳过用户主动关闭过的）；卸载即解除监听
@@ -386,17 +471,37 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     refreshPending()
   }
 
-  /** 右栏左缘拖拽调宽 */
+  /**
+   * 右栏左缘拖拽调宽（仅 `both` 布局下有拖拽柄）：自由拖动，越界即关闭对应面板
+   * - 向右拖使右栏 < RIGHT_MIN → 松手关闭右栏（回「对话」）
+   * - 向左拖使聊天列 < CENTER_MIN → 松手关闭聊天列（进「面板」）
+   * 越界后先卡在最小宽并将指示线变红，再多拖 DRAG_OVERSHOOT 才提交，避免误触；关闭后宽度回写拖拽前的值。
+   */
   const onRightDragStart = (e: ReactMouseEvent) => {
     e.preventDefault()
+    const aside = document.querySelector('[data-aside-r]') as HTMLElement | null
+    const rowW = (aside?.parentElement ?? document.body).getBoundingClientRect().width
+    const maxW = Math.max(RIGHT_MIN, rowW - CENTER_MIN)
+    const startW = Math.min(Math.max(rightW, RIGHT_MIN), maxW)
     const startX = e.clientX
-    const startW = rightW
-    const move = (ev: MouseEvent) => setRightW(Math.min(760, Math.max(340, startW + (startX - ev.clientX))))
+    let collapseTo: CrLayout | null = null
+    const move = (ev: MouseEvent) => {
+      const raw = startW + (startX - ev.clientX)
+      setRightW(Math.min(Math.max(raw, RIGHT_MIN), maxW))
+      setDragZone(raw < RIGHT_MIN ? 'right' : raw > maxW ? 'center' : null)
+      if (raw < RIGHT_MIN - DRAG_OVERSHOOT) collapseTo = 'center'
+      else if (raw > maxW + DRAG_OVERSHOOT) collapseTo = 'right'
+    }
     const up = () => {
       document.removeEventListener('mousemove', move)
       document.removeEventListener('mouseup', up)
       document.body.style.userSelect = ''
       document.body.style.cursor = ''
+      setDragZone(null)
+      if (collapseTo) {
+        setRightW(startW) // 回写拖拽前宽度，下次展开不保留被拖到极限的窄态
+        pickLayout(collapseTo)
+      }
     }
     document.body.style.userSelect = 'none'
     document.body.style.cursor = 'col-resize'
@@ -452,7 +557,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
       onCompact={() => handleCommand('compact')}
       onOpenContext={() => {
         setRightTab('context')
-        setRightOpen(true)
+        revealRight()
       }}
       indexOn={indexMode !== 'off'}
       onToggleIndex={() => setIndexMode((m) => (m === 'off' ? 'mini' : 'off'))}
@@ -499,7 +604,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
               onPreview={(p) => {
                 setPreviewPath(p)
                 setRightTab('preview')
-                setRightOpen(true)
+                revealRight()
               }}
               activePath={previewPath}
               online={online}
@@ -547,18 +652,24 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
         </div>
 
         <div className="flex items-center gap-2.5 text-[11px] text-fg-muted">
-          <button
-            onClick={() => setRightOpen((v) => !v)}
-            aria-label={rightOpen ? '收起右栏' : '展开右栏'}
-            title={rightOpen ? '收起右栏（知识库/文档/审查/上下文）' : '展开右栏（知识库/文档/审查/上下文）'}
-            className={`rounded-md border p-1.5 transition-colors ${
-              rightOpen
-                ? 'border-accent/60 bg-accent/10 text-accent'
-                : 'border-line bg-surface text-fg-secondary hover:border-accent/50 hover:text-accent'
-            }`}
-          >
-            <PanelRight size={14} strokeWidth={1.9} />
-          </button>
+          {/* 主体区布局三选一（对话 / 面板 / 双栏）：取代旧的两个易混淆开关；样式对齐 ModeSwitch */}
+          <div className="flex shrink-0 rounded-lg border border-line bg-surface p-[2px]" role="tablist" aria-label="显示区切换">
+            {LAYOUTS.map(({ key, label, icon: Icon, hint }) => (
+              <button
+                key={key}
+                role="tab"
+                aria-selected={layout === key}
+                onClick={() => pickLayout(key)}
+                title={`${hint}（" 循环切换）`}
+                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] font-medium transition-all duration-150 ${
+                  layout === key ? 'bg-surface-raised text-fg' : 'text-fg-muted hover:text-fg-secondary'
+                }`}
+              >
+                <Icon size={13} strokeWidth={1.9} />
+                {label}
+              </button>
+            ))}
+          </div>
           <ChatSettings value={chatCfg} onChange={updateChatCfg} />
           <button
             onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
@@ -579,7 +690,8 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
       </header>
 
         <div className="flex min-h-0 flex-1">
-        {/* 中央：聊天主窗口（--chat-w / --chat-pad-y 由排版设置下发） */}
+        {/* 中央：聊天主窗口（--chat-w / --chat-pad-y 由排版设置下发）；与右栏对等，可整体收起 */}
+        {centerOpen && (
         <main
           className="relative flex min-w-0 flex-1"
           style={{ '--chat-w': `${chatCfg.pct}%`, '--chat-pad-y': CHAT_PADY[chatCfg.padY] } as CSSProperties}
@@ -647,18 +759,15 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
           )}
           </div>
         </main>
+        )}
 
-        {/* 右栏：焦点对象工作区 [知识 | 文档 | 审查]，tab 永远可点 + 空态；TopBar 开关控制整体 */}
+        {/* 右栏：与聊天列对等的一等主栏——「面板」布局下 flex-1 占满主体区（tab 条保留，否则无法切面板）；离线时不展示（引导卡已在聊天列） */}
         {rightOpen && !offline && (
-          <aside className="relative flex shrink-0 flex-col border-l border-line bg-ink" style={{ width: rightW }}>
-            <div
-              onMouseDown={onRightDragStart}
-              title="拖拽调整宽度"
-              className="group absolute left-[-3px] top-0 z-10 flex h-full w-[7px] cursor-col-resize justify-center"
-            >
-              {/* 细可见线（2px）+ 宽隐形热区（7px）：线细但颜色醒目 */}
-              <div className="h-full w-[2px] bg-accent/40 transition-colors group-hover:bg-accent group-active:bg-accent" />
-            </div>
+          <aside
+            data-aside-r
+            className={`relative flex flex-col border-l border-line bg-ink ${rightMain ? 'min-w-0 flex-1' : 'shrink-0'}`}
+            style={rightMain ? undefined : { width: rightW }}
+          >
             <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">
               <button
                 onClick={() => setRightTab('knowledge')}
@@ -710,6 +819,15 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
                 <ScrollText size={12} strokeWidth={1.9} />
                 上下文
               </button>
+              <button
+                onClick={() => setRightTab('history')}
+                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] transition-colors ${
+                  rightTab === 'history' ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
+                }`}
+              >
+                <History size={12} strokeWidth={1.9} />
+                历史
+              </button>
             </div>
             {rightTab === 'knowledge' ? (
               <KnowledgePanel onStartTask={startTask} onShowStaging={showStaging} onOpenPage={onOpenWikiPage} busy={busy} online={online} />
@@ -731,8 +849,25 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
               />
             ) : rightTab === 'context' ? (
               <ContextPanel sessionId={activeId} />
+            ) : rightTab === 'history' ? (
+              <HistoryPanel sessionId={activeId} busy={busy} onBranched={reloadActive} />
             ) : (
               <PreviewPanel path={previewPath} onClose={() => setPreviewPath(null)} />
+            )}
+            {/* 拖拽柄只在双栏态出现：面板独占时已占满主体区，调宽无意义（回双栏用顶栏或 "） */}
+            {!rightMain && (
+              <div
+                onMouseDown={onRightDragStart}
+                title="拖拽调整宽度 · 拖过边界即关闭对应面板"
+                className="group absolute left-[-3px] top-0 z-10 flex h-full w-[7px] cursor-col-resize justify-center"
+              >
+                {/* 细可见线（2px）+ 宽隐形热区（7px）：拖到越界时变红提示将关闭 */}
+                <div
+                  className={`h-full w-[2px] transition-colors ${
+                    dragZone ? 'bg-danger' : 'bg-accent/40 group-hover:bg-accent group-active:bg-accent'
+                  }`}
+                />
+              </div>
             )}
           </aside>
         )}

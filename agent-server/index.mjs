@@ -28,6 +28,9 @@ import {
   cachedEntry,
   listSessions,
   sessionMessages,
+  sessionTree,
+  sessionEntryDetail,
+  branchSession,
   renameSession,
   deleteSession,
   getModelRuntime,
@@ -727,11 +730,34 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && mMsg) {
       const sid = decodeURIComponent(mMsg[1])
       const vid = url.searchParams.get('vaultId')
-      const r = await sessionMessages(sid, vid)
+      const leafId = url.searchParams.get('leafId') || undefined
+      const r = await sessionMessages(sid, vid, leafId)
       if (!r) return json(res, 404, { error: '会话不存在' })
       // 活跃缓存会话：实时用量（含上下文占用）；冷会话：从磁盘转录重算累计细分（contextUsage 无实时值→前端占位）
       const usage = sessionUsage(sid) ?? { cost: 0, contextUsage: null, stats: await coldSessionStats(sid, vid) }
       return json(res, 200, { ...r, usage })
+    }
+    const mTree = p.match(/^\/agent\/sessions\/([^/]+)\/tree$/)
+    if (req.method === 'GET' && mTree) {
+      // 完整历史分支树（只读）；冷会话从磁盘恢复，首次略慢属正常
+      const t = await sessionTree(decodeURIComponent(mTree[1]), url.searchParams.get('vaultId'))
+      return t ? json(res, 200, t) : json(res, 404, { error: '会话不存在' })
+    }
+    const mEntry = p.match(/^\/agent\/sessions\/([^/]+)\/entry$/)
+    if (req.method === 'GET' && mEntry) {
+      // 单条 entry 详情（历史面板“只看选中这一条”）
+      const entryId = url.searchParams.get('entryId') || ''
+      if (!entryId) return json(res, 400, { error: 'entryId is required' })
+      const d = await sessionEntryDetail(decodeURIComponent(mEntry[1]), url.searchParams.get('vaultId'), entryId)
+      return d ? json(res, 200, d) : json(res, 404, { error: '会话或条目不存在' })
+    }
+    const mBranch = p.match(/^\/agent\/sessions\/([^/]+)\/branch$/)
+    if (req.method === 'POST' && mBranch) {
+      const body = await readBody(req).catch(() => null)
+      const entryId = String(body?.entryId || '').trim()
+      if (!entryId) return json(res, 400, { error: 'entryId is required' })
+      const r = await branchSession(decodeURIComponent(mBranch[1]), entryId)
+      return r?.ok ? json(res, 200, r) : json(res, 409, { error: r?.error || '分支切换失败' })
     }
     const mCtx = p.match(/^\/agent\/sessions\/([^/]+)\/context$/)
     if (req.method === 'GET' && mCtx) {

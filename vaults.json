@@ -16,5 +16,11 @@
     "name": "史记",
     "path": "shiji",
     "description": "把史记这套书变成wiki"
+  },
+  {
+    "id": "sanguozhi",
+    "name": "三国志",
+    "path": "sanguozhi",
+    "description": "三国志知识库"
   }
 ]
