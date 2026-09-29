@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
-import { BookOpen, Bot, Columns2, FileDiff, FileText, FolderTree, History, MessageSquare, Moon, PanelBottom, PanelBottomClose, ArrowDownUp, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
+import { BookOpen, Bot, Columns2, FileDiff, FileText, FolderTree, History, MessageSquare, Moon, PanelBottom, PanelTop, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
 import ModeSwitch from '@/components/ModeSwitch'
 import VaultSwitcher from '@/components/VaultSwitcher'
 import Brand from '@/components/Brand'
@@ -75,10 +75,12 @@ interface Props {
 }
 
 type LeftTab = 'sessions' | 'files' | 'settings'
-/** 左栏分区：上/下两个 pane 各自独立选择面板；bottom=null 为单栏。新增面板只需扩展 TABS 注册表 */
+/** 左栏双分区：每个标签归属唯一分区（topTabs/bottomTabs 互斥划分），各区独立记录当前面板；bottomTabs 为空 = 单栏 */
 interface LeftPanes {
-  top: LeftTab
-  bottom: LeftTab | null
+  topTabs: LeftTab[]
+  bottomTabs: LeftTab[]
+  topActive: LeftTab
+  bottomActive: LeftTab | null
 }
 type RightTab = 'knowledge' | 'preview' | 'review' | 'context' | 'history'
 /** 主体区三选一布局：中间列 / 右栏 / 两者并存（左栏为独立开关，不参与） */
@@ -108,36 +110,47 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   // 会话流状态来自模块级单例 store（切换模式卸载 AiMode 也不丢流）
   const snap = useSyncExternalStore(subscribeStream, getStreamState)
   const { msgs, busy, activeId, sessionName, usage, lastModelName } = snap
+  // 左栏双分区（issue #1）：标签按归属分区不重复；下半有标签才显示下半区
   const [panes, setPanes] = useState<LeftPanes>(() => {
-    const v = localStorage.getItem('wv-left-bottom')
-    const bottom = v === 'sessions' || v === 'files' || v === 'settings' ? v : null
-    // 上半默认会话；若与恢复的下半区碰撞则顺延到下一个注册面板，保证两区不同时显示同一面板
-    return { top: bottom === 'sessions' ? (TABS.find((t) => t.key !== 'sessions')?.key ?? 'sessions') : 'sessions', bottom }
-  })
-  const { top: topPane, bottom: bottomPane } = panes
-  useEffect(() => {
-    if (bottomPane) localStorage.setItem('wv-left-bottom', bottomPane)
-    else localStorage.removeItem('wv-left-bottom')
-  }, [bottomPane])
-  /** 取第一个不是 exclude 的注册面板（送到底部后上半回落用） */
-  const firstOtherPane = (exclude: LeftTab): LeftTab => TABS.find((t) => t.key !== exclude)?.key ?? 'sessions'
-  /** 任一 tab 条点面板：切换本区显示的目标面板（对方区活跃面板已被互斥过滤，不会点到；交换逻辑由 swapPanes 承担，此处分支为防御保留） */
-  const pickPane = (target: LeftTab, own: 'top' | 'bottom') => {
-    setPanes((p) => {
-      if (own === 'top') {
-        if (p.bottom === target) return { top: target, bottom: p.top }
-        return { ...p, top: target }
+    const all = TABS.map((t) => t.key)
+    let bottomTabs: LeftTab[] = []
+    const raw = localStorage.getItem('wv-left-bottom')
+    if (raw) {
+      if (all.includes(raw as LeftTab)) bottomTabs = [raw as LeftTab] // 兼容旧版单值（如 "files"）
+      else {
+        try {
+          const v: unknown = JSON.parse(raw)
+          if (Array.isArray(v)) bottomTabs = v.filter((k): k is LeftTab => all.includes(k as LeftTab))
+        } catch {
+          /* 非法值回退单栏 */
+        }
       }
-      if (p.top === target && p.bottom) return { top: p.bottom, bottom: target }
-      return { ...p, bottom: target }
+    }
+    bottomTabs = [...new Set(bottomTabs)]
+    const topTabs = all.filter((k) => !bottomTabs.includes(k))
+    return { topTabs, bottomTabs, topActive: topTabs.includes('sessions') ? 'sessions' : (topTabs[0] ?? 'sessions'), bottomActive: bottomTabs[0] ?? null }
+  })
+  const { topTabs, bottomTabs, topActive, bottomActive } = panes
+  useEffect(() => {
+    if (bottomTabs.length) localStorage.setItem('wv-left-bottom', JSON.stringify(bottomTabs))
+    else localStorage.removeItem('wv-left-bottom')
+  }, [bottomTabs])
+  /** 上半当前标签移到下半；上半只剩一个标签时禁止（由 tab 条 disabled 拦截） */
+  const moveTopToBottom = () =>
+    setPanes((p) => {
+      if (p.topTabs.length <= 1) return p
+      const moving = p.topActive
+      const topTabs = p.topTabs.filter((k) => k !== moving)
+      return { ...p, topTabs, topActive: topTabs[0] ?? moving, bottomTabs: [...p.bottomTabs, moving], bottomActive: p.bottomActive ?? moving }
     })
-  }
-  /** 上下两区内容整体交换（tab 条互斥隐藏后的专用入口） */
-  const swapPanes = () => setPanes((p) => (p.bottom ? { top: p.bottom, bottom: p.top } : p))
-  /** 把当前上半面板送到下半，开启分栏；上半回落到下一个注册面板 */
-  const sendToBottom = () => setPanes((p) => ({ top: firstOtherPane(p.top), bottom: p.top }))
-  /** 撤销分栏：下半面板回到上半 tab 条可选项，上半保持 */
-  const clearBottom = () => setPanes((p) => ({ ...p, bottom: null }))
+  /** 下半当前标签移回上半；下半清空后下半区自动消失 */
+  const moveBottomToTop = () =>
+    setPanes((p) => {
+      if (!p.bottomActive) return p
+      const moving = p.bottomActive
+      const bottomTabs = p.bottomTabs.filter((k) => k !== moving)
+      return { ...p, bottomTabs, bottomActive: bottomTabs[0] ?? null, topTabs: [...p.topTabs, moving] }
+    })
   // 左栏展开/收拢（持久化），与阅读模式 PanelLeft 开关对齐
   const [leftOpen, setLeftOpen] = useState(() => localStorage.getItem('wv-panel-l-ai') !== '0')
   useEffect(() => localStorage.setItem('wv-panel-l-ai', leftOpen ? '1' : '0'), [leftOpen])
@@ -583,16 +596,17 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
 
   /** 按注册表 key 取面板节点（上下两区共用同一渲染映射） */
   const paneNode = (key: LeftTab) => (key === 'sessions' ? sessionList : key === 'files' ? fileTree : settingsPanel)
-  /** 分区 tab 条：互斥渲染——对方分区正在显示的面板不在本条出现，保证一个面板只属于一个区 */
+  /** 分区 tab 条：只渲染归属本区的标签（一个标签只属于一个区）；右端移动按钮把本区当前标签送到对方区 */
   const renderPaneBar = (own: 'top' | 'bottom') => {
-    const active = own === 'top' ? topPane : bottomPane
-    const other = own === 'top' ? bottomPane : topPane
+    const tabs = own === 'top' ? topTabs : bottomTabs
+    const active = own === 'top' ? topActive : bottomActive
+    const activeLabel = TABS.find((t) => t.key === active)?.label ?? ''
     return (
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">
-        {TABS.filter((t) => t.key !== other).map(({ key, label, icon: Icon }) => (
+        {TABS.filter((t) => tabs.includes(t.key)).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
-            onClick={() => pickPane(key, own)}
+            onClick={() => setPanes((p) => (own === 'top' ? { ...p, topActive: key } : { ...p, bottomActive: key }))}
             title={label}
             className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] transition-colors ${
               active === key ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
@@ -603,35 +617,24 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
           </button>
         ))}
         {own === 'top' ? (
-          !bottomPane && (
-            <button
-              onClick={sendToBottom}
-              title="将当前面板送到下半区分栏"
-              aria-label="将当前面板送到下半区"
-              className="ml-auto rounded-md border border-line bg-surface p-1 text-fg-secondary transition-colors hover:border-accent/50 hover:text-accent"
-            >
-              <PanelBottom size={13} strokeWidth={1.9} />
-            </button>
-          )
+          <button
+            onClick={moveTopToBottom}
+            disabled={topTabs.length <= 1}
+            title={topTabs.length <= 1 ? '上半区至少保留一个标签，无法下移' : `将「${activeLabel}」移到下半区`}
+            aria-label="将当前标签移到下半区"
+            className="ml-auto rounded-md border border-line bg-surface p-1 text-fg-secondary transition-colors hover:border-accent/50 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line disabled:hover:text-fg-secondary"
+          >
+            <PanelBottom size={13} strokeWidth={1.9} />
+          </button>
         ) : (
-          <div className="ml-auto flex items-center gap-1">
-            <button
-              onClick={swapPanes}
-              title="上下两区交换"
-              aria-label="上下两区交换"
-              className="rounded-md border border-line bg-surface p-1 text-fg-secondary transition-colors hover:border-accent/50 hover:text-accent"
-            >
-              <ArrowDownUp size={13} strokeWidth={1.9} />
-            </button>
-            <button
-              onClick={clearBottom}
-              title="回退单栏（取消下半区）"
-              aria-label="取消左栏分栏"
-              className="rounded-md border border-accent/60 bg-accent/10 p-1 text-accent transition-colors hover:bg-accent/20"
-            >
-              <PanelBottomClose size={13} strokeWidth={1.9} />
-            </button>
-          </div>
+          <button
+            onClick={moveBottomToTop}
+            title={`将「${activeLabel}」移回上半区（下半区清空后自动消失）`}
+            aria-label="将当前标签移回上半区"
+            className="ml-auto rounded-md border border-accent/60 bg-accent/10 p-1 text-accent transition-colors hover:bg-accent/20"
+          >
+            <PanelTop size={13} strokeWidth={1.9} />
+          </button>
         )}
       </div>
     )
@@ -655,7 +658,9 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     <AgentToolbar
       usage={usage}
       modelDisplay={model?.id ?? lastModelName ?? defaultModelName ?? '默认模型'}
-      onOpenSettings={() => setPanes((p) => ({ ...p, top: 'settings' }))}
+      onOpenSettings={() =>
+        setPanes((p) => (p.bottomTabs.includes('settings') ? { ...p, bottomActive: 'settings' } : { ...p, topActive: 'settings' }))
+      }
       thinkingLevel={thinkingLevel}
       onThinkingCycle={cycleThinking}
       onCompact={() => handleCommand('compact')}
@@ -677,12 +682,12 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
       <aside className="flex w-side shrink-0 flex-col border-r border-line bg-ink-soft">
         <Brand />
         {renderPaneBar('top')}
-        <div className="min-h-0 flex-1">{paneNode(topPane)}</div>
-        {bottomPane && (
+        <div className="min-h-0 flex-1">{paneNode(topActive)}</div>
+        {bottomTabs.length > 0 && (
           <>
             <div className="h-px shrink-0 bg-line" />
             {renderPaneBar('bottom')}
-            <div className="min-h-0 flex-1">{paneNode(bottomPane)}</div>
+            <div className="min-h-0 flex-1">{paneNode(bottomActive ?? bottomTabs[0] ?? 'sessions')}</div>
           </>
         )}
       </aside>
