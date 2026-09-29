@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
-import { BookOpen, Bot, Columns2, FileDiff, FileText, FolderTree, History, MessageSquare, Moon, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
+import { BookOpen, Bot, Columns2, FileDiff, FileText, FolderTree, History, MessageSquare, Moon, PanelBottom, PanelTop, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
 import ModeSwitch from '@/components/ModeSwitch'
 import VaultSwitcher from '@/components/VaultSwitcher'
 import Brand from '@/components/Brand'
@@ -75,6 +75,13 @@ interface Props {
 }
 
 type LeftTab = 'sessions' | 'files' | 'settings'
+/** 左栏双分区：每个标签归属唯一分区（topTabs/bottomTabs 互斥划分），各区独立记录当前面板；bottomTabs 为空 = 单栏 */
+interface LeftPanes {
+  topTabs: LeftTab[]
+  bottomTabs: LeftTab[]
+  topActive: LeftTab
+  bottomActive: LeftTab | null
+}
 type RightTab = 'knowledge' | 'preview' | 'review' | 'context' | 'history'
 /** 主体区三选一布局：中间列 / 右栏 / 两者并存（左栏为独立开关，不参与） */
 type CrLayout = 'center' | 'right' | 'both'
@@ -103,7 +110,47 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   // 会话流状态来自模块级单例 store（切换模式卸载 AiMode 也不丢流）
   const snap = useSyncExternalStore(subscribeStream, getStreamState)
   const { msgs, busy, activeId, sessionName, usage, lastModelName } = snap
-  const [leftTab, setLeftTab] = useState<LeftTab>('sessions')
+  // 左栏双分区（issue #1）：标签按归属分区不重复；下半有标签才显示下半区
+  const [panes, setPanes] = useState<LeftPanes>(() => {
+    const all = TABS.map((t) => t.key)
+    let bottomTabs: LeftTab[] = []
+    const raw = localStorage.getItem('wv-left-bottom')
+    if (raw) {
+      if (all.includes(raw as LeftTab)) bottomTabs = [raw as LeftTab] // 兼容旧版单值（如 "files"）
+      else {
+        try {
+          const v: unknown = JSON.parse(raw)
+          if (Array.isArray(v)) bottomTabs = v.filter((k): k is LeftTab => all.includes(k as LeftTab))
+        } catch {
+          /* 非法值回退单栏 */
+        }
+      }
+    }
+    bottomTabs = [...new Set(bottomTabs)]
+    const topTabs = all.filter((k) => !bottomTabs.includes(k))
+    return { topTabs, bottomTabs, topActive: topTabs.includes('sessions') ? 'sessions' : (topTabs[0] ?? 'sessions'), bottomActive: bottomTabs[0] ?? null }
+  })
+  const { topTabs, bottomTabs, topActive, bottomActive } = panes
+  useEffect(() => {
+    if (bottomTabs.length) localStorage.setItem('wv-left-bottom', JSON.stringify(bottomTabs))
+    else localStorage.removeItem('wv-left-bottom')
+  }, [bottomTabs])
+  /** 上半当前标签移到下半；上半只剩一个标签时禁止（由 tab 条 disabled 拦截） */
+  const moveTopToBottom = () =>
+    setPanes((p) => {
+      if (p.topTabs.length <= 1) return p
+      const moving = p.topActive
+      const topTabs = p.topTabs.filter((k) => k !== moving)
+      return { ...p, topTabs, topActive: topTabs[0] ?? moving, bottomTabs: [...p.bottomTabs, moving], bottomActive: p.bottomActive ?? moving }
+    })
+  /** 下半当前标签移回上半；下半清空后下半区自动消失 */
+  const moveBottomToTop = () =>
+    setPanes((p) => {
+      if (!p.bottomActive) return p
+      const moving = p.bottomActive
+      const bottomTabs = p.bottomTabs.filter((k) => k !== moving)
+      return { ...p, bottomTabs, bottomActive: bottomTabs[0] ?? null, topTabs: [...p.topTabs, moving] }
+    })
   // 左栏展开/收拢（持久化），与阅读模式 PanelLeft 开关对齐
   const [leftOpen, setLeftOpen] = useState(() => localStorage.getItem('wv-panel-l-ai') !== '0')
   useEffect(() => localStorage.setItem('wv-panel-l-ai', leftOpen ? '1' : '0'), [leftOpen])
@@ -512,6 +559,87 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   // pi-web 同款：新会话且无消息时输入区垂直居中，有内容后回到底端
   const isEmptyNew = msgs.length === 0 && !busy
 
+  // 左栏两类列表的可复用节点：文件 tab 在「下半停靠」布局中会与会话列表同屏上下分栏
+  const sessionList = (
+    <SessionSidebar
+      sessions={sessions}
+      activeId={activeId}
+      busy={busy}
+      online={online}
+      onSelect={switchSession}
+      onNew={newSession}
+      onRename={doRename}
+      onDelete={doDelete}
+    />
+  )
+  const fileTree = (
+    <FileExplorer
+      onPreview={(p) => {
+        openDoc(activeVault, p)
+        setRightTab('preview')
+        revealRight()
+      }}
+      activePath={getActiveDoc(activeVault)}
+      online={online}
+    />
+  )
+  const settingsPanel = (
+    <SettingsPanel
+      model={model}
+      onModel={(m) => {
+        setModel(m)
+        localStorage.setItem('wv-ai-model', JSON.stringify(m))
+      }}
+      online={online}
+    />
+  )
+
+  /** 按注册表 key 取面板节点（上下两区共用同一渲染映射） */
+  const paneNode = (key: LeftTab) => (key === 'sessions' ? sessionList : key === 'files' ? fileTree : settingsPanel)
+  /** 分区 tab 条：只渲染归属本区的标签（一个标签只属于一个区）；右端移动按钮把本区当前标签送到对方区 */
+  const renderPaneBar = (own: 'top' | 'bottom') => {
+    const tabs = own === 'top' ? topTabs : bottomTabs
+    const active = own === 'top' ? topActive : bottomActive
+    const activeLabel = TABS.find((t) => t.key === active)?.label ?? ''
+    return (
+      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">
+        {TABS.filter((t) => tabs.includes(t.key)).map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setPanes((p) => (own === 'top' ? { ...p, topActive: key } : { ...p, bottomActive: key }))}
+            title={label}
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] transition-colors ${
+              active === key ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
+            }`}
+          >
+            <Icon size={12} strokeWidth={2} />
+            {label}
+          </button>
+        ))}
+        {own === 'top' ? (
+          <button
+            onClick={moveTopToBottom}
+            disabled={topTabs.length <= 1}
+            title={topTabs.length <= 1 ? '上半区至少保留一个标签，无法下移' : `将「${activeLabel}」移到下半区`}
+            aria-label="将当前标签移到下半区"
+            className="ml-auto rounded-md border border-line bg-surface p-1 text-fg-secondary transition-colors hover:border-accent/50 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line disabled:hover:text-fg-secondary"
+          >
+            <PanelBottom size={13} strokeWidth={1.9} />
+          </button>
+        ) : (
+          <button
+            onClick={moveBottomToTop}
+            title={`将「${activeLabel}」移回上半区（下半区清空后自动消失）`}
+            aria-label="将当前标签移回上半区"
+            className="ml-auto rounded-md border border-accent/60 bg-accent/10 p-1 text-accent transition-colors hover:bg-accent/20"
+          >
+            <PanelTop size={13} strokeWidth={1.9} />
+          </button>
+        )}
+      </div>
+    )
+  }
+
   const chatInput = (
     <ChatInput
       value={input}
@@ -530,7 +658,9 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     <AgentToolbar
       usage={usage}
       modelDisplay={model?.id ?? lastModelName ?? defaultModelName ?? '默认模型'}
-      onOpenSettings={() => setLeftTab('settings')}
+      onOpenSettings={() =>
+        setPanes((p) => (p.bottomTabs.includes('settings') ? { ...p, bottomActive: 'settings' } : { ...p, topActive: 'settings' }))
+      }
       thinkingLevel={thinkingLevel}
       onThinkingCycle={cycleThinking}
       onCompact={() => handleCommand('compact')}
@@ -547,58 +677,19 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
 
   return (
     <div className="flex h-full">
-      {/* 左侧栏：全高到顶（与阅读模式 Sidebar 同结构：品牌区在最顶）；可收拢 */}
+      {/* 左侧栏：全高到顶（与阅读模式 Sidebar 同结构：品牌区在最顶）；可收拢；支持上/下双分区（任意注册面板可归位任一区） */}
       {leftOpen && (
       <aside className="flex w-side shrink-0 flex-col border-r border-line bg-ink-soft">
         <Brand />
-        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">
-          {TABS.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setLeftTab(key)}
-              title={label}
-              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] transition-colors ${
-                leftTab === key ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
-              }`}
-            >
-              <Icon size={12} strokeWidth={2} />
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="min-h-0 flex-1">
-          {leftTab === 'sessions' ? (
-            <SessionSidebar
-              sessions={sessions}
-              activeId={activeId}
-              busy={busy}
-              online={online}
-              onSelect={switchSession}
-              onNew={newSession}
-              onRename={doRename}
-              onDelete={doDelete}
-            />
-          ) : leftTab === 'files' ? (
-            <FileExplorer
-              onPreview={(p) => {
-                openDoc(activeVault, p)
-                setRightTab('preview')
-                revealRight()
-              }}
-              activePath={getActiveDoc(activeVault)}
-              online={online}
-            />
-          ) : (
-            <SettingsPanel
-              model={model}
-              onModel={(m) => {
-                setModel(m)
-                localStorage.setItem('wv-ai-model', JSON.stringify(m))
-              }}
-              online={online}
-            />
-          )}
-        </div>
+        {renderPaneBar('top')}
+        <div className="min-h-0 flex-1">{paneNode(topActive)}</div>
+        {bottomTabs.length > 0 && (
+          <>
+            <div className="h-px shrink-0 bg-line" />
+            {renderPaneBar('bottom')}
+            <div className="min-h-0 flex-1">{paneNode(bottomActive ?? bottomTabs[0] ?? 'sessions')}</div>
+          </>
+        )}
       </aside>
       )}
 
