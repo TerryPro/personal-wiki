@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
-import { BookOpen, Bot, Columns2, FileDiff, FileText, FolderTree, History, MessageSquare, Moon, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
+import { BookOpen, Bot, Columns2, FileDiff, FileText, FolderTree, History, MessageSquare, Moon, PanelBottom, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
 import ModeSwitch from '@/components/ModeSwitch'
 import VaultSwitcher from '@/components/VaultSwitcher'
 import Brand from '@/components/Brand'
@@ -107,6 +107,9 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   // 左栏展开/收拢（持久化），与阅读模式 PanelLeft 开关对齐
   const [leftOpen, setLeftOpen] = useState(() => localStorage.getItem('wv-panel-l-ai') !== '0')
   useEffect(() => localStorage.setItem('wv-panel-l-ai', leftOpen ? '1' : '0'), [leftOpen])
+  // 文件浏览器布局（issue #1，持久化）：full=占满左栏整列（现状默认）/ bottom=停靠左下半、上半留给会话列表
+  const [fileDock, setFileDock] = useState<'full' | 'bottom'>(() => (localStorage.getItem('wv-file-dock') === 'bottom' ? 'bottom' : 'full'))
+  useEffect(() => localStorage.setItem('wv-file-dock', fileDock), [fileDock])
   // 右栏「文档」多 tab 状态在模块级 store（lib/openDocs）：切模式/切库不丢已开文档
   const openDocsVersion = useSyncExternalStore(subscribeOpenDocs, getOpenDocsVersion)
   // 右栏 [知识|文档|审查|上下文] tab 与当前审查会话；宽度拖拽持久化；rightOpen 为右栏整体开关
@@ -512,6 +515,31 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   // pi-web 同款：新会话且无消息时输入区垂直居中，有内容后回到底端
   const isEmptyNew = msgs.length === 0 && !busy
 
+  // 左栏两类列表的可复用节点：文件 tab 在「下半停靠」布局中会与会话列表同屏上下分栏
+  const sessionList = (
+    <SessionSidebar
+      sessions={sessions}
+      activeId={activeId}
+      busy={busy}
+      online={online}
+      onSelect={switchSession}
+      onNew={newSession}
+      onRename={doRename}
+      onDelete={doDelete}
+    />
+  )
+  const fileTree = (
+    <FileExplorer
+      onPreview={(p) => {
+        openDoc(activeVault, p)
+        setRightTab('preview')
+        revealRight()
+      }}
+      activePath={getActiveDoc(activeVault)}
+      online={online}
+    />
+  )
+
   const chatInput = (
     <ChatInput
       value={input}
@@ -565,29 +593,35 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
               {label}
             </button>
           ))}
+          {/* 文件 tab 激活时出现：整列 ⇄ 左下半 布局切换（issue #1） */}
+          {leftTab === 'files' && (
+            <button
+              onClick={() => setFileDock((v) => (v === 'full' ? 'bottom' : 'full'))}
+              title={fileDock === 'full' ? '文件浏览器停靠左下半（上半留给会话列表）' : '文件浏览器占满左栏整列'}
+              aria-label="切换文件浏览器布局"
+              className={`ml-auto rounded-md border p-1 transition-colors ${
+                fileDock === 'bottom'
+                  ? 'border-accent/60 bg-accent/10 text-accent'
+                  : 'border-line bg-surface text-fg-secondary hover:border-accent/50 hover:text-accent'
+              }`}
+            >
+              <PanelBottom size={13} strokeWidth={1.9} />
+            </button>
+          )}
         </div>
-        <div className="min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 flex-col">
           {leftTab === 'sessions' ? (
-            <SessionSidebar
-              sessions={sessions}
-              activeId={activeId}
-              busy={busy}
-              online={online}
-              onSelect={switchSession}
-              onNew={newSession}
-              onRename={doRename}
-              onDelete={doDelete}
-            />
+            sessionList
           ) : leftTab === 'files' ? (
-            <FileExplorer
-              onPreview={(p) => {
-                openDoc(activeVault, p)
-                setRightTab('preview')
-                revealRight()
-              }}
-              activePath={getActiveDoc(activeVault)}
-              online={online}
-            />
+            fileDock === 'bottom' ? (
+              <>
+                <div className="min-h-0 flex-1">{sessionList}</div>
+                <div className="h-px shrink-0 bg-line" />
+                <div className="min-h-0 flex-1">{fileTree}</div>
+              </>
+            ) : (
+              fileTree
+            )
           ) : (
             <SettingsPanel
               model={model}
