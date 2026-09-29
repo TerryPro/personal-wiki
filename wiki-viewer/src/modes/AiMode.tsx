@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
-import { BookOpen, Bot, Columns2, FileDiff, FileText, FolderTree, History, MessageSquare, Moon, PanelBottom, PanelBottomClose, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
+import { BookOpen, Bot, Columns2, FileDiff, FileText, FolderTree, History, MessageSquare, Moon, PanelBottom, PanelBottomClose, ArrowDownUp, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
 import ModeSwitch from '@/components/ModeSwitch'
 import VaultSwitcher from '@/components/VaultSwitcher'
 import Brand from '@/components/Brand'
@@ -110,7 +110,9 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   const { msgs, busy, activeId, sessionName, usage, lastModelName } = snap
   const [panes, setPanes] = useState<LeftPanes>(() => {
     const v = localStorage.getItem('wv-left-bottom')
-    return { top: 'sessions', bottom: v === 'sessions' || v === 'files' || v === 'settings' ? v : null }
+    const bottom = v === 'sessions' || v === 'files' || v === 'settings' ? v : null
+    // 上半默认会话；若与恢复的下半区碰撞则顺延到下一个注册面板，保证两区不同时显示同一面板
+    return { top: bottom === 'sessions' ? (TABS.find((t) => t.key !== 'sessions')?.key ?? 'sessions') : 'sessions', bottom }
   })
   const { top: topPane, bottom: bottomPane } = panes
   useEffect(() => {
@@ -119,7 +121,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   }, [bottomPane])
   /** 取第一个不是 exclude 的注册面板（送到底部后上半回落用） */
   const firstOtherPane = (exclude: LeftTab): LeftTab => TABS.find((t) => t.key !== exclude)?.key ?? 'sessions'
-  /** 任一 tab 条点面板：目标在自己 pane → 切换；目标是对方正在显示的 → 上下交换 */
+  /** 任一 tab 条点面板：切换本区显示的目标面板（对方区活跃面板已被互斥过滤，不会点到；交换逻辑由 swapPanes 承担，此处分支为防御保留） */
   const pickPane = (target: LeftTab, own: 'top' | 'bottom') => {
     setPanes((p) => {
       if (own === 'top') {
@@ -130,6 +132,8 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
       return { ...p, bottom: target }
     })
   }
+  /** 上下两区内容整体交换（tab 条互斥隐藏后的专用入口） */
+  const swapPanes = () => setPanes((p) => (p.bottom ? { top: p.bottom, bottom: p.top } : p))
   /** 把当前上半面板送到下半，开启分栏；上半回落到下一个注册面板 */
   const sendToBottom = () => setPanes((p) => ({ top: firstOtherPane(p.top), bottom: p.top }))
   /** 撤销分栏：下半面板回到上半 tab 条可选项，上半保持 */
@@ -579,27 +583,25 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
 
   /** 按注册表 key 取面板节点（上下两区共用同一渲染映射） */
   const paneNode = (key: LeftTab) => (key === 'sessions' ? sessionList : key === 'files' ? fileTree : settingsPanel)
-  /** 分区 tab 条：渲染全量注册面板；点向对方分区正在显示的面板 = 上下交换 */
+  /** 分区 tab 条：互斥渲染——对方分区正在显示的面板不在本条出现，保证一个面板只属于一个区 */
   const renderPaneBar = (own: 'top' | 'bottom') => {
     const active = own === 'top' ? topPane : bottomPane
+    const other = own === 'top' ? bottomPane : topPane
     return (
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">
-        {TABS.map(({ key, label, icon: Icon }) => {
-          const inOther = own === 'top' ? key === bottomPane : key === topPane
-          return (
-            <button
-              key={key}
-              onClick={() => pickPane(key, own)}
-              title={inOther ? `${label}（在另一区，点击交换）` : label}
-              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] transition-colors ${
-                active === key ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
-              }`}
-            >
-              <Icon size={12} strokeWidth={2} />
-              {label}
-            </button>
-          )
-        })}
+        {TABS.filter((t) => t.key !== other).map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => pickPane(key, own)}
+            title={label}
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] transition-colors ${
+              active === key ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
+            }`}
+          >
+            <Icon size={12} strokeWidth={2} />
+            {label}
+          </button>
+        ))}
         {own === 'top' ? (
           !bottomPane && (
             <button
@@ -612,14 +614,24 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
             </button>
           )
         ) : (
-          <button
-            onClick={clearBottom}
-            title="回退单栏（取消下半区）"
-            aria-label="取消左栏分栏"
-            className="ml-auto rounded-md border border-accent/60 bg-accent/10 p-1 text-accent transition-colors hover:bg-accent/20"
-          >
-            <PanelBottomClose size={13} strokeWidth={1.9} />
-          </button>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={swapPanes}
+              title="上下两区交换"
+              aria-label="上下两区交换"
+              className="rounded-md border border-line bg-surface p-1 text-fg-secondary transition-colors hover:border-accent/50 hover:text-accent"
+            >
+              <ArrowDownUp size={13} strokeWidth={1.9} />
+            </button>
+            <button
+              onClick={clearBottom}
+              title="回退单栏（取消下半区）"
+              aria-label="取消左栏分栏"
+              className="rounded-md border border-accent/60 bg-accent/10 p-1 text-accent transition-colors hover:bg-accent/20"
+            >
+              <PanelBottomClose size={13} strokeWidth={1.9} />
+            </button>
+          </div>
         )}
       </div>
     )
