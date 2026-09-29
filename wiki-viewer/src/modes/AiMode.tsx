@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
-import { BookOpen, Bot, Columns2, FileDiff, FileText, FolderTree, History, MessageSquare, Moon, PanelBottom, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
+import { BookOpen, Bot, Columns2, FileDiff, FileText, FolderTree, History, MessageSquare, Moon, PanelBottom, PanelBottomClose, PanelLeft, PanelRight, ScrollText, Settings2, Sun } from 'lucide-react'
 import ModeSwitch from '@/components/ModeSwitch'
 import VaultSwitcher from '@/components/VaultSwitcher'
 import Brand from '@/components/Brand'
@@ -75,6 +75,11 @@ interface Props {
 }
 
 type LeftTab = 'sessions' | 'files' | 'settings'
+/** 左栏分区：上/下两个 pane 各自独立选择面板；bottom=null 为单栏。新增面板只需扩展 TABS 注册表 */
+interface LeftPanes {
+  top: LeftTab
+  bottom: LeftTab | null
+}
 type RightTab = 'knowledge' | 'preview' | 'review' | 'context' | 'history'
 /** 主体区三选一布局：中间列 / 右栏 / 两者并存（左栏为独立开关，不参与） */
 type CrLayout = 'center' | 'right' | 'both'
@@ -103,13 +108,35 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
   // 会话流状态来自模块级单例 store（切换模式卸载 AiMode 也不丢流）
   const snap = useSyncExternalStore(subscribeStream, getStreamState)
   const { msgs, busy, activeId, sessionName, usage, lastModelName } = snap
-  const [leftTab, setLeftTab] = useState<LeftTab>('sessions')
+  const [panes, setPanes] = useState<LeftPanes>(() => {
+    const v = localStorage.getItem('wv-left-bottom')
+    return { top: 'sessions', bottom: v === 'sessions' || v === 'files' || v === 'settings' ? v : null }
+  })
+  const { top: topPane, bottom: bottomPane } = panes
+  useEffect(() => {
+    if (bottomPane) localStorage.setItem('wv-left-bottom', bottomPane)
+    else localStorage.removeItem('wv-left-bottom')
+  }, [bottomPane])
+  /** 取第一个不是 exclude 的注册面板（送到底部后上半回落用） */
+  const firstOtherPane = (exclude: LeftTab): LeftTab => TABS.find((t) => t.key !== exclude)?.key ?? 'sessions'
+  /** 任一 tab 条点面板：目标在自己 pane → 切换；目标是对方正在显示的 → 上下交换 */
+  const pickPane = (target: LeftTab, own: 'top' | 'bottom') => {
+    setPanes((p) => {
+      if (own === 'top') {
+        if (p.bottom === target) return { top: target, bottom: p.top }
+        return { ...p, top: target }
+      }
+      if (p.top === target && p.bottom) return { top: p.bottom, bottom: target }
+      return { ...p, bottom: target }
+    })
+  }
+  /** 把当前上半面板送到下半，开启分栏；上半回落到下一个注册面板 */
+  const sendToBottom = () => setPanes((p) => ({ top: firstOtherPane(p.top), bottom: p.top }))
+  /** 撤销分栏：下半面板回到上半 tab 条可选项，上半保持 */
+  const clearBottom = () => setPanes((p) => ({ ...p, bottom: null }))
   // 左栏展开/收拢（持久化），与阅读模式 PanelLeft 开关对齐
   const [leftOpen, setLeftOpen] = useState(() => localStorage.getItem('wv-panel-l-ai') !== '0')
   useEffect(() => localStorage.setItem('wv-panel-l-ai', leftOpen ? '1' : '0'), [leftOpen])
-  // 文件浏览器布局（issue #1，持久化）：full=占满左栏整列（现状默认）/ bottom=停靠左下半、上半留给会话列表
-  const [fileDock, setFileDock] = useState<'full' | 'bottom'>(() => (localStorage.getItem('wv-file-dock') === 'bottom' ? 'bottom' : 'full'))
-  useEffect(() => localStorage.setItem('wv-file-dock', fileDock), [fileDock])
   // 右栏「文档」多 tab 状态在模块级 store（lib/openDocs）：切模式/切库不丢已开文档
   const openDocsVersion = useSyncExternalStore(subscribeOpenDocs, getOpenDocsVersion)
   // 右栏 [知识|文档|审查|上下文] tab 与当前审查会话；宽度拖拽持久化；rightOpen 为右栏整体开关
@@ -550,17 +577,53 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     />
   )
 
-  /** 整列 ⇄ 左下半切换：收拢到下半时文件不再占 tab，若当前停在文件 tab 则上半回落到会话 */
-  const toggleFileDock = () => {
-    if (fileDock === 'full') {
-      setFileDock('bottom')
-      if (leftTab === 'files') setLeftTab('sessions')
-    } else {
-      setFileDock('full')
-    }
+  /** 按注册表 key 取面板节点（上下两区共用同一渲染映射） */
+  const paneNode = (key: LeftTab) => (key === 'sessions' ? sessionList : key === 'files' ? fileTree : settingsPanel)
+  /** 分区 tab 条：渲染全量注册面板；点向对方分区正在显示的面板 = 上下交换 */
+  const renderPaneBar = (own: 'top' | 'bottom') => {
+    const active = own === 'top' ? topPane : bottomPane
+    return (
+      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">
+        {TABS.map(({ key, label, icon: Icon }) => {
+          const inOther = own === 'top' ? key === bottomPane : key === topPane
+          return (
+            <button
+              key={key}
+              onClick={() => pickPane(key, own)}
+              title={inOther ? `${label}（在另一区，点击交换）` : label}
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] transition-colors ${
+                active === key ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
+              }`}
+            >
+              <Icon size={12} strokeWidth={2} />
+              {label}
+            </button>
+          )
+        })}
+        {own === 'top' ? (
+          !bottomPane && (
+            <button
+              onClick={sendToBottom}
+              title="将当前面板送到下半区分栏"
+              aria-label="将当前面板送到下半区"
+              className="ml-auto rounded-md border border-line bg-surface p-1 text-fg-secondary transition-colors hover:border-accent/50 hover:text-accent"
+            >
+              <PanelBottom size={13} strokeWidth={1.9} />
+            </button>
+          )
+        ) : (
+          <button
+            onClick={clearBottom}
+            title="回退单栏（取消下半区）"
+            aria-label="取消左栏分栏"
+            className="ml-auto rounded-md border border-accent/60 bg-accent/10 p-1 text-accent transition-colors hover:bg-accent/20"
+          >
+            <PanelBottomClose size={13} strokeWidth={1.9} />
+          </button>
+        )}
+      </div>
+    )
   }
-  // 下半停靠态下「文件」不再是 tab（文件树常驻下半区），tab 条只剩会话/设置
-  const visibleTabs = fileDock === 'bottom' ? TABS.filter((t) => t.key !== 'files') : TABS
 
   const chatInput = (
     <ChatInput
@@ -580,7 +643,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
     <AgentToolbar
       usage={usage}
       modelDisplay={model?.id ?? lastModelName ?? defaultModelName ?? '默认模型'}
-      onOpenSettings={() => setLeftTab('settings')}
+      onOpenSettings={() => setPanes((p) => ({ ...p, top: 'settings' }))}
       thinkingLevel={thinkingLevel}
       onThinkingCycle={cycleThinking}
       onCompact={() => handleCommand('compact')}
@@ -597,53 +660,19 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
 
   return (
     <div className="flex h-full">
-      {/* 左侧栏：全高到顶（与阅读模式 Sidebar 同结构：品牌区在最顶）；可收拢 */}
+      {/* 左侧栏：全高到顶（与阅读模式 Sidebar 同结构：品牌区在最顶）；可收拢；支持上/下双分区（任意注册面板可归位任一区） */}
       {leftOpen && (
       <aside className="flex w-side shrink-0 flex-col border-r border-line bg-ink-soft">
         <Brand />
-        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">
-          {visibleTabs.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setLeftTab(key)}
-              title={label}
-              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] transition-colors ${
-                leftTab === key ? 'bg-accent/10 font-medium text-accent' : 'text-fg-muted hover:bg-surface-raised hover:text-fg-secondary'
-              }`}
-            >
-              <Icon size={12} strokeWidth={2} />
-              {label}
-            </button>
-          ))}
-          {/* 整列 ⇄ 左下半 布局切换（issue #1）：常驻 tab 条右端，两种布局下都能切回 */}
-          <button
-            onClick={toggleFileDock}
-            title={fileDock === 'full' ? '文件浏览器停靠左下半（常驻下半，上半随 tab 切会话/设置）' : '文件浏览器占满左栏整列（恢复文件 tab）'}
-            aria-label="切换文件浏览器布局"
-            className={`ml-auto rounded-md border p-1 transition-colors ${
-              fileDock === 'bottom'
-                ? 'border-accent/60 bg-accent/10 text-accent'
-                : 'border-line bg-surface text-fg-secondary hover:border-accent/50 hover:text-accent'
-            }`}
-          >
-            <PanelBottom size={13} strokeWidth={1.9} />
-          </button>
-        </div>
-        <div className="flex min-h-0 flex-1 flex-col">
-          {fileDock === 'bottom' ? (
-            <>
-              <div className="min-h-0 flex-1">{leftTab === 'settings' ? settingsPanel : sessionList}</div>
-              <div className="h-px shrink-0 bg-line" />
-              <div className="min-h-0 flex-1">{fileTree}</div>
-            </>
-          ) : leftTab === 'sessions' ? (
-            sessionList
-          ) : leftTab === 'files' ? (
-            fileTree
-          ) : (
-            settingsPanel
-          )}
-        </div>
+        {renderPaneBar('top')}
+        <div className="min-h-0 flex-1">{paneNode(topPane)}</div>
+        {bottomPane && (
+          <>
+            <div className="h-px shrink-0 bg-line" />
+            {renderPaneBar('bottom')}
+            <div className="min-h-0 flex-1">{paneNode(bottomPane)}</div>
+          </>
+        )}
       </aside>
       )}
 
