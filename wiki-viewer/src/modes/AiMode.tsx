@@ -539,6 +539,28 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
       online={online}
     />
   )
+  const settingsPanel = (
+    <SettingsPanel
+      model={model}
+      onModel={(m) => {
+        setModel(m)
+        localStorage.setItem('wv-ai-model', JSON.stringify(m))
+      }}
+      online={online}
+    />
+  )
+
+  /** 整列 ⇄ 左下半切换：收拢到下半时文件不再占 tab，若当前停在文件 tab 则上半回落到会话 */
+  const toggleFileDock = () => {
+    if (fileDock === 'full') {
+      setFileDock('bottom')
+      if (leftTab === 'files') setLeftTab('sessions')
+    } else {
+      setFileDock('full')
+    }
+  }
+  // 下半停靠态下「文件」不再是 tab（文件树常驻下半区），tab 条只剩会话/设置
+  const visibleTabs = fileDock === 'bottom' ? TABS.filter((t) => t.key !== 'files') : TABS
 
   const chatInput = (
     <ChatInput
@@ -580,7 +602,7 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
       <aside className="flex w-side shrink-0 flex-col border-r border-line bg-ink-soft">
         <Brand />
         <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">
-          {TABS.map(({ key, label, icon: Icon }) => (
+          {visibleTabs.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => setLeftTab(key)}
@@ -593,44 +615,33 @@ export default function AiMode({ theme, setTheme, onSwitchToWiki, pendingTask, o
               {label}
             </button>
           ))}
-          {/* 文件 tab 激活时出现：整列 ⇄ 左下半 布局切换（issue #1） */}
-          {leftTab === 'files' && (
-            <button
-              onClick={() => setFileDock((v) => (v === 'full' ? 'bottom' : 'full'))}
-              title={fileDock === 'full' ? '文件浏览器停靠左下半（上半留给会话列表）' : '文件浏览器占满左栏整列'}
-              aria-label="切换文件浏览器布局"
-              className={`ml-auto rounded-md border p-1 transition-colors ${
-                fileDock === 'bottom'
-                  ? 'border-accent/60 bg-accent/10 text-accent'
-                  : 'border-line bg-surface text-fg-secondary hover:border-accent/50 hover:text-accent'
-              }`}
-            >
-              <PanelBottom size={13} strokeWidth={1.9} />
-            </button>
-          )}
+          {/* 整列 ⇄ 左下半 布局切换（issue #1）：常驻 tab 条右端，两种布局下都能切回 */}
+          <button
+            onClick={toggleFileDock}
+            title={fileDock === 'full' ? '文件浏览器停靠左下半（常驻下半，上半随 tab 切会话/设置）' : '文件浏览器占满左栏整列（恢复文件 tab）'}
+            aria-label="切换文件浏览器布局"
+            className={`ml-auto rounded-md border p-1 transition-colors ${
+              fileDock === 'bottom'
+                ? 'border-accent/60 bg-accent/10 text-accent'
+                : 'border-line bg-surface text-fg-secondary hover:border-accent/50 hover:text-accent'
+            }`}
+          >
+            <PanelBottom size={13} strokeWidth={1.9} />
+          </button>
         </div>
         <div className="flex min-h-0 flex-1 flex-col">
-          {leftTab === 'sessions' ? (
+          {fileDock === 'bottom' ? (
+            <>
+              <div className="min-h-0 flex-1">{leftTab === 'settings' ? settingsPanel : sessionList}</div>
+              <div className="h-px shrink-0 bg-line" />
+              <div className="min-h-0 flex-1">{fileTree}</div>
+            </>
+          ) : leftTab === 'sessions' ? (
             sessionList
           ) : leftTab === 'files' ? (
-            fileDock === 'bottom' ? (
-              <>
-                <div className="min-h-0 flex-1">{sessionList}</div>
-                <div className="h-px shrink-0 bg-line" />
-                <div className="min-h-0 flex-1">{fileTree}</div>
-              </>
-            ) : (
-              fileTree
-            )
+            fileTree
           ) : (
-            <SettingsPanel
-              model={model}
-              onModel={(m) => {
-                setModel(m)
-                localStorage.setItem('wv-ai-model', JSON.stringify(m))
-              }}
-              online={online}
-            />
+            settingsPanel
           )}
         </div>
       </aside>
